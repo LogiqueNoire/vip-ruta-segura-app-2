@@ -39,11 +39,26 @@ const bookingCode = () => { const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s 
 const sha = s => crypto.createHash('sha256').update(SECRET + '|' + s).digest('hex');
 const fileUrl = id => (id ? '/api/files/' + id : null);
 const usuarioDesdeHoja = u => u && ({
+  ...u,
   id: String(u.id || u.request_id), email: S(u.email), dni: S(u.dni), name: S(u.name), phone: S(u.phone),
   pass_hash: S(u.pass_hash), is_admin: ['true', '1'].includes(S(u.is_admin).toLowerCase()), blocked: ['true', '1'].includes(S(u.blocked).toLowerCase()),
   blocked_reason: S(u.blocked_reason), pax_status: S(u.pax_status || 'none'), pax_note: S(u.pax_note), created_at: u.created_at || null,
   drv_status: S(u.drv_status || u.driver_status), yape_phone: S(u.yape_phone || u.yape), plin_phone: S(u.plin_phone || u.plin)
 });
+const NEON_USER_COLS = `u.id, u.email, u.dni, u.name, u.phone, u.pass_hash, u.is_admin, u.blocked, u.blocked_reason,
+  u.emerg_name, u.emerg_phone, u.selfie_file_id, u.dni_file_id, u.pax_status, u.pax_note, u.created_at,
+  dp.status as drv_status, dp.review_note as drv_note, dp.lic_num, dp.lic_cat, dp.lic_file_id,
+  dp.vtype, dp.model, dp.plate, dp.color, dp.veh_ext_file_id, dp.veh_int_file_id, dp.veh_bag_file_id,
+  dp.soat_until, dp.soat_file_id, dp.rt_ok, dp.ant_file_id, dp.yape_phone, dp.plin_phone`;
+async function buscarUsuarioNeonPorId(id) {
+  if (!isDatabaseId(id)) return null;
+  return (await q(`select ${NEON_USER_COLS} from users u left join driver_profiles dp on dp.user_id = u.id where u.id = $1`, [Number(id)])).rows[0] || null;
+}
+async function buscarUsuarioNeonPorCorreo(email) {
+  const normalized = S(email).trim().toLowerCase();
+  if (!isEmail(normalized)) return null;
+  return (await q(`select ${NEON_USER_COLS} from users u left join driver_profiles dp on dp.user_id = u.id where lower(u.email) = $1`, [normalized])).rows[0] || null;
+}
 
 // Sincronización de prototipo: Make recibe los campos de las tablas; los archivos siguen en Neon.
 async function enviarAMake(tabla, datos) {
@@ -111,14 +126,21 @@ async function loadUser(req, res, next) {
     if (t) {
       let p = null; try { p = jwt.verify(t, SECRET); } catch (_) {}
       if (p) {
-        const row = p.email ? await buscarUsuarioPorCorreo(p.email) : await buscarUsuarioPorId(p.uid);
+        const row = SHEETS_READS
+          ? (p.email ? await buscarUsuarioPorCorreo(p.email) : await buscarUsuarioPorId(p.uid))
+          : (p.email ? await buscarUsuarioNeonPorCorreo(p.email) : await buscarUsuarioNeonPorId(p.uid));
         const rowId = row && (row.id || row.request_id);
-        const u = row && S(rowId) === S(p.uid) ? usuarioDesdeHoja(row) : null;
+        const sameEmail = p.email && row && S(row.email).toLowerCase() === S(p.email).toLowerCase();
+        const u = row && (S(rowId) === S(p.uid) || sameEmail) ? usuarioDesdeHoja(row) : null;
         if (u && !u.blocked) {
           u.makeId = String(u.id);
-          const neonUser = u.email ? (await q('select id from users where lower(email) = lower($1)', [u.email])).rows[0] : null;
-          u.neonLinked = !!neonUser;
-          if (neonUser) u.id = String(neonUser.id);
+          if (SHEETS_READS) {
+            const neonUser = u.email ? (await q('select id from users where lower(email) = lower($1)', [u.email])).rows[0] : null;
+            u.neonLinked = !!neonUser;
+            if (neonUser) u.id = String(neonUser.id);
+          } else {
+            u.neonLinked = true;
+          }
           req.user = u;
         }
         else if (u && u.blocked) { clearSession(res); req.blocked = u.blocked_reason || true; }
@@ -158,7 +180,8 @@ const needApprovedDriver = (req, _res, next) => (!req.user || req.user.drv_statu
 
 /* ================= DTOs ================= */
 async function meDto(uid, userRecord) {
-  const u = usuarioDesdeHoja(userRecord || await buscarUsuarioPorId(uid)); if (!u) return null;
+  const record = userRecord || (SHEETS_READS ? await buscarUsuarioPorId(uid) : await buscarUsuarioNeonPorId(uid));
+  const u = usuarioDesdeHoja(record); if (!u) return null;
   const neonId = Number(u.neonLinked ? u.id : uid);
   if (Number.isFinite(neonId) && neonId > 0) {
     const nu = (await q('select selfie_file_id, dni_file_id, pax_status, pax_note from users where id = $1', [neonId])).rows[0];
@@ -225,6 +248,13 @@ async function driversMap(ids) {
     };
   });
   return out;
+}
+async function reviewsForDriver(driverId) {
+  if (SHEETS_READS) return listarResenasConductor(driverId);
+  const result = await q(`select r.stars, r.tags, r.comment, r.created_at, u.name
+    from reviews r join users u on u.id = r.passenger_id
+    where r.driver_id = $1 order by r.created_at desc limit 40`, [driverId]);
+  return result.rows;
 }
 
 /* ================= precios y promociones ================= */
@@ -372,16 +402,19 @@ api.post('/auth/register', A(async (req, res) => {
 api.post('/auth/login', A(async (req, res) => {
   const email = S(req.body.email).trim().toLowerCase();
   limit('login|' + req.ip + '|' + email, 10, 15 * 60e3);
-  const u = usuarioDesdeHoja(await buscarUsuarioPorCorreo(email));
+  const record = SHEETS_READS ? await buscarUsuarioPorCorreo(email) : await buscarUsuarioNeonPorCorreo(email);
+  const u = usuarioDesdeHoja(record);
   if (!u) fail(401, 'El correo o la contraseña no coinciden.');
   const passHash = u.pass_hash;
   if (!passHash || !(await verifyPassword(req.body.password, passHash, true))) fail(401, 'El correo o la contraseña no coinciden.');
   if (u.blocked) fail(403, 'Tu cuenta está bloqueada. Contacta a la central VIP.' + (u.blocked_reason ? ' Motivo: ' + u.blocked_reason : ''));
-  const neonUser = u.email ? (await q('select id from users where lower(email) = lower($1)', [u.email])).rows[0] : null;
-  const meRecord = Object.assign({}, u, { makeId: String(u.id), id: neonUser ? String(neonUser.id) : String(u.id) });
+  const neonUser = SHEETS_READS && u.email ? (await q('select id from users where lower(email) = lower($1)', [u.email])).rows[0] : null;
+  const meRecord = Object.assign({}, u, {
+    makeId: String(u.id), id: neonUser ? String(neonUser.id) : String(u.id), neonLinked: !SHEETS_READS || !!neonUser
+  });
   const me = await meDto(meRecord.id, meRecord);
   if (!me) fail(500, 'No pudimos cargar tu perfil. Inténtalo nuevamente.');
-  setSession(res, u.id, req.body.remember !== false, u.email);
+  setSession(res, SHEETS_READS ? u.id : meRecord.id, req.body.remember !== false, u.email);
   res.json({ me });
 }));
 api.post('/auth/logout', (req, res) => { clearSession(res); res.json({ ok: true }); });
@@ -528,7 +561,7 @@ async function loadTripForRead(id) {
   const trip = (await loadTrip(id)) ||
     (await q(`select ${TRIP_COLS} from trips t where t.make_id = $1`, [S(id)])).rows[0];
   if (trip) return Object.assign(trip, { _neon: true });
-  return await buscarViajePorId(id);
+  return SHEETS_READS ? await buscarViajePorId(id) : null;
 }
 async function ensureTripInNeon(t) {
   if (t._neon) return t;
@@ -589,7 +622,10 @@ async function ensureTripInNeon(t) {
 api.get('/trips', needUser, A(async (req, res) => {
   const from = S(req.query.from), date = S(req.query.date);
   if (!OFF[from] || !isYmd(date)) fail(400, 'Búsqueda no válida.');
-  let rows = await Promise.all((await listarViajes(date, from)).map(ensureTripInNeon));
+  let rows = SHEETS_READS
+    ? await Promise.all((await listarViajes(date, from)).map(ensureTripInNeon))
+    : (await q(`select ${TRIP_COLS} from trips t where t.trip_date = $1::date and t.from_off = $2
+        and t.status in ('active','started') order by t.dep_at`, [date, from])).rows;
   if (rows.length) {
     const sheetSeats = SHEETS_READS ? await leerTabla('asientos_reserva') : [];
     const ids = rows.map(t => Number(t.id)).filter(id => Number.isSafeInteger(id) && id > 0);
@@ -628,7 +664,7 @@ api.get('/trips/:id', needUser, needNeonUser, A(async (req, res) => {
       }
     }
   }
-  const rv = (await listarResenasConductor(t.driver_id)).slice(0, 4);
+  const rv = (await reviewsForDriver(t.driver_id)).slice(0, 4);
   const state = await seatState(t, req.user);
   t.taken = state.occupied.length;
   res.json({ trip: tripDto(t), drivers, pay: { yape: dp.yape_phone || null, plin: dp.plin_phone || null }, seatState: state,
@@ -642,14 +678,10 @@ api.get('/trips/:id/seats', needUser, needNeonUser, A(async (req, res) => {
 
 api.get('/drivers/:id/reviews', needUser, A(async (req, res) => {
   const id = req.params.id === 'me' ? (SHEETS_READS ? req.user.makeId : req.user.id) : +req.params.id || 0;
-  if (SHEETS_READS) {
-    const rows = await listarResenasConductor(id);
-    return res.json({ reviews: rows.slice(0, 40).map(x => ({
-      s: Number(x.stars) || 0, t: S(x.comment), tags: Array.isArray(x.tags) ? x.tags : S(x.tags).split(',').map(v => v.trim()).filter(Boolean), a: shortName(S(x.name)), at: x.created_at || null
-    })) });
-  }
-  const rv = await q(`select r.stars, r.tags, r.flags, r.comment, r.created_at, u.name from reviews r join users u on u.id = r.passenger_id where r.driver_id = $1 order by r.created_at desc limit 40`, [id]);
-  res.json({ reviews: rv.rows.map(x => ({ s: x.stars, t: x.comment, tags: x.tags, a: shortName(x.name), at: x.created_at })) });
+  const rows = await reviewsForDriver(id);
+  res.json({ reviews: rows.slice(0, 40).map(x => ({
+    s: Number(x.stars) || 0, t: S(x.comment), tags: Array.isArray(x.tags) ? x.tags : S(x.tags).split(',').map(v => v.trim()).filter(Boolean), a: shortName(S(x.name)), at: x.created_at || null
+  })) });
 }));
 
 /* ---------- reservas: asientos, pago ---------- */
@@ -913,6 +945,9 @@ async function ownTrip(req) {
   return t;
 }
 async function liveLocationForTrip(tripId) {
+  if (!SHEETS_READS) {
+    return (await q('select lat, lon, speed_kmh, updated_at from live_locations where trip_id = $1', [tripId])).rows[0] || null;
+  }
   const locations = await leerTabla('ubicaciones_en_vivo', { trip_id: tripId });
   return locations.reduce((latest, location) =>
     !latest || Date.parse(location.updated_at || 0) > Date.parse(latest.updated_at || 0) ? location : latest, null);
@@ -940,7 +975,7 @@ api.get('/driver/trips/:id/manifest', needUser, needDriverOrAdmin, A(async (req,
     if (x.noshow) feed.push({ k: 'libre', seat: x.seat, name: x.name, at: x.released_at });
   });
   feed.sort((a, b) => new Date(b.at) - new Date(a.at));
-  const live = await liveLocationForTrip(t.make_id || t.id);
+  const live = await liveLocationForTrip(SHEETS_READS ? (t.make_id || t.id) : t.id);
   res.json({ trip: tripDto(t), seats, feed: feed.slice(0, 12), live });
 }));
 
@@ -1057,17 +1092,18 @@ api.post('/trips/:id/location', needUser, needDriver, A(async (req, res) => {
   res.json({ ok: true });
 }));
 api.get('/trips/:id/live', needUser, A(async (req, res) => {
-  const t = await loadTripForRead(req.params.id); if (!t) fail(404, 'No encontramos ese viaje.');
+  const sourceTrip = await loadTripForRead(req.params.id); if (!sourceTrip) fail(404, 'No encontramos ese viaje.');
+  const t = await ensureTripInNeon(sourceTrip);
   let allowed = S(t.driver_id) === S(req.user.id) || req.user.is_admin;
   if (!allowed && isDatabaseId(req.user.id)) {
     allowed = (await q(`select 1 from bookings where trip_id = $1 and user_id = $2 and status in ('por_confirmar','confirmado') limit 1`, [t.id, Number(req.user.id)])).rowCount > 0;
   }
-  if (!allowed) {
+  if (!allowed && SHEETS_READS) {
     const bookings = await leerTabla('reservas', { trip_id: t.make_id || t.id, user_id: req.user.makeId || req.user.id });
     allowed = bookings.some(b => ['por_confirmar', 'confirmado'].includes(S(b.status)));
   }
   if (!allowed) fail(403, 'Solo los pasajeros de este viaje pueden verlo.');
-  const l = await liveLocationForTrip(t.make_id || t.id);
+  const l = await liveLocationForTrip(SHEETS_READS ? (t.make_id || t.id) : t.id);
   res.json({ trip: tripDto(t), drivers: await driversMap([t.driver_id]), live: l && { lat: l.lat, lon: l.lon, speed: l.speed_kmh, at: l.updated_at } });
 }));
 
