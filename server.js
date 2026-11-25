@@ -159,6 +159,22 @@ const needApprovedDriver = (req, _res, next) => (!req.user || req.user.drv_statu
 /* ================= DTOs ================= */
 async function meDto(uid, userRecord) {
   const u = usuarioDesdeHoja(userRecord || await buscarUsuarioPorId(uid)); if (!u) return null;
+  const neonId = Number(u.neonLinked ? u.id : uid);
+  if (Number.isFinite(neonId) && neonId > 0) {
+    const nu = (await q('select selfie_file_id, dni_file_id, pax_status, pax_note from users where id = $1', [neonId])).rows[0];
+    if (nu) {
+      if (nu.selfie_file_id) u.selfie_file_id = nu.selfie_file_id;
+      if (nu.dni_file_id) u.dni_file_id = nu.dni_file_id;
+    }
+    if (u.drv_status) {
+      const ndp = (await q('select lic_file_id, veh_ext_file_id, veh_int_file_id, veh_bag_file_id, soat_file_id, ant_file_id from driver_profiles where user_id = $1', [neonId])).rows[0];
+      if (ndp) {
+        for (const k of ['lic_file_id', 'veh_ext_file_id', 'veh_int_file_id', 'veh_bag_file_id', 'soat_file_id', 'ant_file_id']) {
+          if (ndp[k]) u[k] = ndp[k];
+        }
+      }
+    }
+  }
   const rating = { a: null, n: 0 };
   const dto = {
     id: String(u.id), email: u.email, name: u.name, phone: u.phone, dni: u.dni, isAdmin: u.is_admin,
