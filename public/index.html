@@ -76,6 +76,7 @@ h1,h2,h3,h4,p{margin:0}
   .scr.manifest>.tripchips,.scr.manifest>.manifest-people{grid-column:1/-1}
   .scr.manifest>.manifest-overview{grid-column:1;align-self:start}
   .scr.manifest>.manifest-actions{grid-column:2;align-self:start}
+  .live-layout{display:grid;grid-template-columns:minmax(300px,.9fr) minmax(0,1.1fr);align-items:start;gap:20px}
   #app>.nav{order:-1;border-top:0;border-bottom:1px solid var(--line);justify-content:center;gap:12px;padding:6px max(24px,calc((100% - 1280px)/2))}
   #app>.nav button{flex:0 0 auto;flex-direction:row;gap:8px;padding:6px 14px;font-size:14px}
   .nav .ni{width:36px}
@@ -435,6 +436,9 @@ small{font-size:12.5px}
 .map .mtools button{width:42px;height:42px;border-radius:14px;border:1px solid rgba(218,225,230,.9);background:rgba(255,255,255,.9);backdrop-filter:blur(8px);display:grid;place-items:center;box-shadow:0 5px 14px rgba(35,38,45,.12)}
 .map .mtools button[aria-pressed="true"]{background:var(--ink);color:var(--gold);border-color:var(--ink)}
 .map .live-pill{position:absolute;left:12px;top:12px;display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);border:1px solid rgba(218,225,230,.9);border-radius:999px;padding:7px 11px;font-weight:800;font-size:12px;box-shadow:0 5px 14px rgba(35,38,45,.1);z-index:2}
+.live-layout{display:flex;flex-direction:column;gap:16px;min-width:0}
+.live-map-col,.live-info-col{min-width:0}
+.live-info-col{display:flex;flex-direction:column;gap:16px}
 .pulse{width:9px;height:9px;border-radius:50%;background:var(--bad);box-shadow:0 0 0 0 rgba(194,53,43,.6);animation:pl 1.4s infinite}
 .pulse.off{background:#A5AAB3;animation:none}
 @keyframes pl{70%{box-shadow:0 0 0 8px rgba(194,53,43,0)}100%{box-shadow:0 0 0 0 rgba(194,53,43,0)}}
