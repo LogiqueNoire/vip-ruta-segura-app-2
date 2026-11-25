@@ -52,9 +52,22 @@ Para comprobar el recorrido, inicia sesión como pasajero y reserva uno de los v
 | `GMAIL_USER` + (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`) | Alternativa: **API de Gmail por HTTPS** (ver «Correo con la API de Gmail» abajo) |
 | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Alternativa por SMTP, solo donde el hosting lo permita (tu PC, Render de pago): cuenta con verificación en 2 pasos → https://myaccount.google.com/apppasswords → contraseña de aplicación de 16 letras. Se ignora si llenas las tres de la API |
 | `APIS_NET_PE_TOKEN` | Token de https://apis.net.pe |
+| `SHEETS_SERVICE_ACCOUNT_EMAIL`, `SHEETS_PRIVATE_KEY` | Credenciales de una cuenta de servicio de Google con acceso de Editor a la hoja |
+| `SHEETS_LIBRO_ID` | ID de Google Sheets; opcional si usas la hoja predeterminada del proyecto |
 | `APP_URL`, `PORT`, `NODE_ENV` | Opcionales. En producción usa `NODE_ENV=production` |
 
 Sin ninguna opción de Gmail la app arranca, pero los correos (incluido el código de registro) solo se imprimen en la consola del servidor.
+
+### Sincronizar Neon con Google Sheets (sin Make)
+
+Neon sigue siendo la base principal. El servidor refleja directamente en Sheets los usuarios, viajes, reservas, asientos, pagos, reseñas, incidentes y ubicaciones en vivo. Los cambios se sincronizan automáticamente; si Google está temporalmente indisponible, quedan pendientes y se reintentan. No se copian contraseñas, códigos de verificación ni archivos.
+
+1. En [Google Cloud Console](https://console.cloud.google.com/), habilita **Google Sheets API** y crea una **cuenta de servicio**.
+2. Crea una clave JSON para esa cuenta. Copia `client_email` a `SHEETS_SERVICE_ACCOUNT_EMAIL` y `private_key` a `SHEETS_PRIVATE_KEY` en el `.env` local y en las variables del hosting. Conserva los saltos de línea de la clave (también se aceptan como `\n`).
+3. Comparte el archivo de Google Sheets con el correo de la cuenta de servicio y dale permiso de **Editor**. Configura `SHEETS_LIBRO_ID` con el ID del archivo si no usas el predeterminado.
+4. Conserva las pestañas y encabezados existentes: `usuarios`, `viajes`, `reservas`, `asientos_reserva`, `pagos`, `resenas`, `incidentes` y `ubicaciones_en_vivo`. Reinicia el servidor. Para forzar una carga completa manual: `npm run sync:sheets`.
+
+Los cambios se reflejan normalmente en unos segundos. Revisa los logs del servidor si falta alguna variable, permiso o pestaña.
 
 ### Correo con la API de Gmail (necesario en Render gratis)
 
@@ -95,13 +108,9 @@ El GPS en vivo ahora es real: el celular del chófer transmite su ubicación cad
 
 Necesita un servidor Node (no sirve Netlify Drop, que solo aloja archivos). Render, Railway o Fly funcionan: comando de inicio `npm start`, carga las mismas variables, pon `NODE_ENV=production` y `APP_URL` con tu dirección https. La tarea de liberar asientos corre dentro del servidor, así que debe estar encendido (en planes gratuitos que se duermen, también se ejecuta al recibir cualquier petición).
 
-## Tablas del prototipo en Google Sheets
+## Google Sheets
 
-La hoja `Vip ruta segura` usa estas pestañas con nombres en español:
-
-`usuarios`, `codigos_correo`, `viajes`, `reservas`, `asientos_reserva`, `pagos`, `reseñas`, `incidentes` y `ubicaciones_en_vivo`.
-
-El catálogo de nombres está centralizado en `sheets-config.js`. La tabla `files` y los campos que apuntan a archivos permanecen en el almacenamiento de archivos hasta completar una migración segura.
+La hoja funciona como espejo de lectura para reportes; la app sigue usando Neon para todas sus operaciones. Las pestañas espejo son `usuarios`, `viajes`, `reservas`, `asientos_reserva`, `pagos`, `resenas`, `incidentes` y `ubicaciones_en_vivo`. Los archivos binarios y los códigos de verificación permanecen únicamente en Neon.
 
 ## Lo que conviene saber
 

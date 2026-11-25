@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const { verifyPassword } = require('./password-utils');
 const { q, tx, migrate, pool } = require('./db');
 const { sendMail, lookupDni, esc, MAIL_OK } = require('./services');
+const sheetsSync = require('./sheets-sync');
 const { buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, leerTabla, leerAsientosViaje, listarViajes, listarResenasConductor, listarIncidentesPanel, estadoAsientosDesdeFilas } = require('./sheets-store');
 
 const PROD = process.env.NODE_ENV === 'production';
@@ -28,8 +29,7 @@ const fail = (status, msg, extra) => { throw new HttpError(status, msg, extra); 
 const A = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const S = v => String(v == null ? '' : v);
 const isDatabaseId = v => /^(?:0|[1-9]\d*)$/.test(S(v)) && Number.isSafeInteger(Number(v));
-const MAKE_WEBHOOK_URL = S(process.env.MAKE_WEBHOOK_URL).trim();
-const SHEETS_READS = S(process.env.SHEETS_READS || (S(process.env.SHEETS_READ_WEBHOOK_URL).trim() ? '1' : '0')) === '1';
+const SHEETS_READS = S(process.env.SHEETS_READS || '0') === '1';
 const isPhone = v => /^9\d{8}$/.test(S(v));
 const isYmd = v => /^\d{4}-\d{2}-\d{2}$/.test(S(v)) && !isNaN(Date.parse(S(v) + 'T00:00:00Z'));
 const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(S(v)) && S(v).length <= 120;
@@ -58,22 +58,6 @@ async function buscarUsuarioNeonPorCorreo(email) {
   const normalized = S(email).trim().toLowerCase();
   if (!isEmail(normalized)) return null;
   return (await q(`select ${NEON_USER_COLS} from users u left join driver_profiles dp on dp.user_id = u.id where lower(u.email) = $1`, [normalized])).rows[0] || null;
-}
-
-// Sincronización de prototipo: Make recibe los campos de las tablas; los archivos siguen en Neon.
-async function enviarAMake(tabla, datos) {
-  if (!MAKE_WEBHOOK_URL) return;
-  try {
-    const r = await fetch(MAKE_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tabla, ...datos, timestamp: new Date().toISOString() })
-    });
-    if (!r.ok) console.error(`[make] ${tabla}: HTTP ${r.status}`);
-  } catch (err) {
-    // El prototipo no debe fallar si Make está detenido o aún está en modo prueba.
-    console.error(`[make] no se pudo sincronizar ${tabla}:`, err.message);
-  }
 }
 
 const buckets = new Map();
@@ -338,7 +322,12 @@ app.disable('x-powered-by');
 app.use((req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('X-Frame-Options', 'SAMEORIGIN'); res.setHeader('Referrer-Policy', 'same-origin'); next(); });
 app.use(express.json({ limit: '7mb' }));
 // Salud del servicio, sin sesión ni tareas programadas: para el hosting y monitores externos.
-app.get('/health', A(async (req, res) => { await q('select 1'); res.setHeader('Cache-Control', 'no-store'); res.json({ ok: true, mail: MAIL_OK }); }));
+app.get('/health', A(async (req, res) => {
+  await q('select 1');
+  const sync = (await q('select revision, synced_revision from sheets_sync_state where id = 1')).rows[0];
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: true, mail: MAIL_OK, sheets: { configured: sheetsSync.isConfigured(), pending: !!sync && sync.revision !== sync.synced_revision } });
+}));
 app.use('/api', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.use('/api', A(async (req, res, next) => { await lazyJobs(); next(); }));
 app.use('/api', loadUser);
@@ -415,7 +404,6 @@ api.post('/auth/register', A(async (req, res) => {
     pax_status: role === 'pasajero' ? 'activo' : '', pax_note: '',
     created_at: new Date().toISOString(), role, status: 'activo'
   };
-  await enviarAMake('usuarios', userRecord);
   setSession(res, uid, b.remember !== false, e.email);
   res.json({ me: await meDto(uid, userRecord) });
 }));
@@ -828,7 +816,7 @@ api.post('/bookings/:id/rate', needUser, needNeonUser, A(async (req, res) => {
   const tags = (Array.isArray(req.body.tags) ? req.body.tags : []).filter(x => TAGS.includes(x));
   const flags = stars <= 3 ? (Array.isArray(req.body.flags) ? req.body.flags : []).filter(x => BAD.includes(x)) : [];
   const text = S(req.body.comment).trim().slice(0, 300) || null;
-  const reviewData = await tx(async c => {
+  await tx(async c => {
     const b = (await c.query(`select b.*, t.driver_id, t.status as tstatus from bookings b join trips t on t.id = b.trip_id where b.id = $1 and b.user_id = $2 for update of b`, [+req.params.id || 0, req.user.id])).rows[0];
     if (!b) fail(404, 'No encontramos esa reserva.');
     if (b.status !== 'confirmado') fail(409, 'Solo puedes calificar viajes que hiciste.');
@@ -837,27 +825,6 @@ api.post('/bookings/:id/rate', needUser, needNeonUser, A(async (req, res) => {
     await c.query('insert into reviews (booking_id, trip_id, driver_id, passenger_id, stars, tags, flags, comment) values ($1,$2,$3,$4,$5,$6,$7,$8)', [b.id, b.trip_id, b.driver_id, req.user.id, stars, tags, flags, text]);
     await c.query('update bookings set rated = true where id = $1', [b.id]);
     if (flags.length) await c.query(`insert into incidents (kind, trip_id, user_id, booking_id, issues) values ('reporte',$1,$2,$3,$4)`, [b.trip_id, req.user.id, b.id, flags]);
-    return { bookingId: b.id, tripId: b.trip_id, driverId: b.driver_id };
-  });
-  await enviarAMake('resenas', {
-    id: String(reviewData.bookingId), request_id: String(reviewData.bookingId),
-    booking_id: String(reviewData.bookingId),
-    trip_id: String(reviewData.tripId),
-    driver_id: String(reviewData.driverId),
-    passenger_id: String(req.user.makeId || req.user.id),
-    stars,
-    tags: tags.join(', '),
-    flags: flags.join(', '),
-    comment: text, created_at: new Date().toISOString()
-  });
-  if (flags.length) await enviarAMake('incidentes', {
-    id: `reporte-${reviewData.bookingId}`, request_id: `reporte-${reviewData.bookingId}`,
-    kind: 'reporte',
-    trip_id: String(reviewData.tripId),
-    user_id: String(req.user.makeId || req.user.id),
-    booking_id: String(reviewData.bookingId),
-    issues: flags.join(', '), lat: '', lon: '', status: 'abierto', resolved_by: '', resolved_at: '',
-    created_at: new Date().toISOString()
   });
   res.json({ ok: true });
 }));
@@ -881,18 +848,6 @@ api.post('/trips', needUser, needApprovedDriver, A(async (req, res) => {
       values ($1,$2,$3::date,$4::text, ($3::date + $4::text::time) at time zone 'America/Lima', $5,$6,$7,$8,$9,$10) returning id`,
     [req.user.id, b.from, b.date, b.time, v.price, v.seats, dp.vtype, dp.model, dp.plate, dp.color]);
   await q('update trips set make_id = $2 where id = $1 and make_id is null', [r.rows[0].id, String(r.rows[0].id)]);
-  await enviarAMake('viajes', {
-    id: String(r.rows[0].id), request_id: String(r.rows[0].id),
-    driver_id: String(req.user.makeId || req.user.id),
-    from_off: b.from,
-    trip_date: b.date,
-    dep_time: b.time,
-    price: v.price,
-    seats: v.seats,
-    vtype: dp.vtype, veh_model: dp.model, veh_plate: dp.plate, veh_color: dp.color,
-    dep_at: `${b.date}T${b.time}:00-05:00`, status: 'active', started_at: '',
-    finished_at: '', created_at: new Date().toISOString()
-  });
   res.json({ trip: tripDto(await loadTrip(r.rows[0].id)) });
 }));
 
@@ -911,11 +866,6 @@ api.put('/trips/:id', needUser, needDriver, A(async (req, res) => {
   if (v.seats < maxSeat || v.seats < t.taken) fail(409, 'Ya hay asientos reservados hasta el ' + maxSeat + '. No puedes ofrecer menos.');
   await q(`update trips set trip_date = $2::date, dep_time = $3::text, dep_at = ($2::date + $3::text::time) at time zone 'America/Lima', price = $4, seats = $5 where id = $1`, [t.id, b.date, b.time, v.price, v.seats]);
   const n = await loadTrip(t.id);
-  await enviarAMake('viajes', {
-    id: String(n.id), request_id: String(n.id), driver_id: String(n.driver_id), from_off: n.from, trip_date: n.date, dep_time: n.time,
-    price: n.price, seats: n.seats, vtype: n.vtype, veh_model: n.veh_model, veh_plate: n.veh_plate, veh_color: n.veh_color,
-    dep_at: n.dep_at, status: n.status, started_at: n.started_at || '', finished_at: n.finished_at || '', created_at: n.created_at || new Date().toISOString()
-  });
   const changes = [];
   if (t.date !== n.date || t.time !== n.time) changes.push(`Nueva salida: <b>${n.date} a las ${n.time}</b> (antes ${t.date} ${t.time}).`);
   if (t.price !== n.price) changes.push(`Nuevo precio por asiento: <b>${sol(n.price)}</b>. Tu reserva conserva el precio que pagaste.`);
@@ -933,13 +883,6 @@ async function cancelTrip(tripId, reason) {
     await c.query(`update payments set status = 'rechazado', note = 'Viaje cancelado', decided_at = now() where booking_id = any($1) and status = 'pendiente'`, [bk.rows.map(x => x.id)]);
     const emails = (await c.query(`select distinct u.email from users u where u.id = any($1)`, [bk.rows.map(x => x.user_id)])).rows;
     return { t, emails };
-  });
-  if (info) await enviarAMake('viajes', {
-    id: String(info.t.id), request_id: String(info.t.id), driver_id: String(info.t.driver_id),
-    from_off: info.t.from, trip_date: info.t.date, dep_time: info.t.time, price: info.t.price, seats: info.t.seats,
-    vtype: info.t.vtype, veh_model: info.t.veh_model, veh_plate: info.t.veh_plate, veh_color: info.t.veh_color,
-    dep_at: info.t.dep_at, status: 'cancelled', started_at: info.t.started_at || '', finished_at: info.t.finished_at || '',
-    created_at: info.t.created_at || new Date().toISOString()
   });
   if (info) info.emails.forEach(e => sendMail(e.email, 'Se canceló tu viaje ' + tripLabel(info.t), 'Se canceló tu viaje',
     `<p>${tripLabel(info.t)} fue cancelado${reason ? ': ' + esc(reason) : ''}.</p><p>Si ya habías pagado, pide la devolución a ${esc(info.t.dname)} (celular ${esc(info.t.dphone || '—')}). Puedes reservar otra salida en la app.</p>`));
@@ -1082,13 +1025,6 @@ api.post('/trips/:id/start', needUser, needApprovedDriver, A(async (req, res) =>
     await c.query(`update trips set status = 'started', started_at = now() where id = $1`, [t.id]);
     return { ok: true, status: 'started' };
   });
-  const started = await loadTrip(req.params.id);
-  if (started) await enviarAMake('viajes', {
-    id: String(started.id), request_id: String(started.id), driver_id: String(started.driver_id), from_off: started.from,
-    trip_date: started.date, dep_time: started.time, price: started.price, seats: started.seats, vtype: started.vtype,
-    veh_model: started.veh_model, veh_plate: started.veh_plate, veh_color: started.veh_color, dep_at: started.dep_at,
-    status: 'started', started_at: new Date().toISOString(), finished_at: '', created_at: new Date().toISOString()
-  });
   res.json(out);
 }));
 api.post('/trips/:id/finish', needUser, needApprovedDriver, A(async (req, res) => {
@@ -1097,11 +1033,6 @@ api.post('/trips/:id/finish', needUser, needApprovedDriver, A(async (req, res) =
   if (t.status !== 'started') fail(409, 'Primero inicia el viaje.');
   const r = await q(`update trips set status = 'finished', finished_at = now() where id = $1 and status = 'started' returning status`, [t.id]);
   if (!r.rowCount) fail(409, 'El estado del viaje cambió. Actualiza la pantalla e inténtalo otra vez.');
-  await enviarAMake('viajes', {
-    id: String(t.id), request_id: String(t.id), driver_id: String(t.driver_id), from_off: t.from, trip_date: t.date, dep_time: t.time,
-    price: t.price, seats: t.seats, vtype: t.vtype, veh_model: t.veh_model, veh_plate: t.veh_plate, veh_color: t.veh_color,
-    dep_at: t.dep_at, status: 'finished', started_at: t.started_at || '', finished_at: new Date().toISOString(), created_at: t.created_at || new Date().toISOString()
-  });
   res.json({ ok: true, status: r.rows[0].status });
 }));
 api.post('/trips/:id/location', needUser, needDriver, A(async (req, res) => {
@@ -1111,10 +1042,6 @@ api.post('/trips/:id/location', needUser, needDriver, A(async (req, res) => {
   if (t.status !== 'started') fail(409, 'El viaje no está en curso.');
   await q(`insert into live_locations (trip_id, lat, lon, speed_kmh, updated_at) values ($1,$2,$3,$4, now())
      on conflict (trip_id) do update set lat = excluded.lat, lon = excluded.lon, speed_kmh = excluded.speed_kmh, updated_at = now()`, [t.id, lat, lon, sp]);
-  await enviarAMake('ubicaciones_en_vivo', {
-    id: String(t.id), request_id: String(t.id), trip_id: String(t.id), lat, lon,
-    speed_kmh: sp, updated_at: new Date().toISOString()
-  });
   res.json({ ok: true });
 }));
 api.get('/trips/:id/live', needUser, A(async (req, res) => {
@@ -1139,16 +1066,6 @@ api.post('/incidents', needUser, A(async (req, res) => {
   const t = await loadTrip(req.body.tripId);
   const lat = req.body.lat == null ? null : +req.body.lat, lon = req.body.lon == null ? null : +req.body.lon;
   await q(`insert into incidents (kind, trip_id, user_id, lat, lon) values ('sos',$1,$2,$3,$4)`, [t ? t.id : null, req.user.id, isFinite(lat) ? lat : null, isFinite(lon) ? lon : null]);
-  const incidentId = `sos-${req.user.id}-${Date.now()}`;
-  await enviarAMake('incidentes', {
-    id: incidentId, request_id: incidentId,
-    kind: 'sos',
-    trip_id: t ? String(t.id) : null,
-    user_id: String(req.user.makeId || req.user.id),
-    lat: isFinite(lat) ? lat : null,
-    lon: isFinite(lon) ? lon : null, status: 'abierto', resolved_by: '',
-    resolved_at: '', created_at: new Date().toISOString()
-  });
   const admin = process.env.ADMIN_EMAIL;
   if (admin) sendMail(admin, 'ALERTA SOS · ' + req.user.name, 'Alerta SOS de un pasajero',
     `<p><b>${esc(req.user.name)}</b> (${esc(req.user.phone || '—')}) pidió ayuda${t ? ' en el viaje ' + esc(tripLabel(t)) + ' · placa ' + esc(t.veh_plate) : ''}.</p>${lat != null && lon != null ? `<p><a href="https://www.google.com/maps?q=${lat},${lon}">Ver ubicación</a></p>` : ''}<p>Revísalo en el panel de incidentes.</p>`);
@@ -1269,10 +1186,6 @@ admin.get('/incidents', A(async (req, res) => {
 admin.post('/incidents/:id/resolve', A(async (req, res) => {
   const id = +req.params.id || 0;
   await q(`update incidents set status = 'resuelto', resolved_by = $2, resolved_at = now() where id = $1 and status = 'abierto'`, [id, req.user.id]);
-  await enviarAMake('incidentes', {
-    id: String(id), request_id: String(id), status: 'resuelto', resolved_by: String(req.user.id),
-    resolved_at: new Date().toISOString(), kind: '', trip_id: '', user_id: '', booking_id: '', issues: '', lat: '', lon: '', created_at: ''
-  });
   res.json({ ok: true });
 }));
 
@@ -1302,6 +1215,13 @@ async function main() {
   await seedAdmin();
   await runJobs();
   setInterval(() => runJobs().catch(e => console.error('[jobs]', e.message)), 30000).unref();
+  if (sheetsSync.isConfigured()) {
+    const sync = () => sheetsSync.syncIfNeeded().catch(e => console.error('[sheets] sync failed:', e.message));
+    sync();
+    setInterval(sync, 15000).unref();
+  } else {
+    console.warn('[sheets] Configura SHEETS_SERVICE_ACCOUNT_EMAIL y SHEETS_PRIVATE_KEY para sincronizar con Google Sheets.');
+  }
   const port = process.env.PORT || 3000;
   app.listen(port, () => console.log('VIP Ruta Segura en ' + APP_URL + ' (puerto ' + port + ')'));
 }

@@ -1,18 +1,8 @@
 'use strict';
 
+const { GIDS } = require('./sheets-config');
 const LIBRO_ID = process.env.SHEETS_LIBRO_ID || '1N6_HaUEenitqv11YvTB2sJiQjJ2yfHtUapm2k7g-fcY';
 const READ_WEBHOOK_URL = String(process.env.SHEETS_READ_WEBHOOK_URL || '').trim();
-const GIDS = Object.freeze({
-  usuarios: 0,
-  codigos_correo: 1940336707,
-  viajes: 1230547018,
-  reservas: 1656189283,
-  asientos_reserva: 2021609011,
-  pagos: 1514281011,
-  resenas: 1557130465,
-  incidentes: 1198015377,
-  ubicaciones_en_vivo: 651696487
-});
 
 const cache = new Map();
 

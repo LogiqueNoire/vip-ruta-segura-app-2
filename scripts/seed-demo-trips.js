@@ -63,7 +63,7 @@ async function seedDemoTrips() {
       }
       const inserted = (await c.query(`insert into trips
         (driver_id, from_off, trip_date, dep_time, dep_at, price, seats, vtype, veh_model, veh_plate, veh_color)
-        values ($1,$2,$3::date,$4,($3::date + $4::time) at time zone 'America/Lima',$5,$6,$7,$8,$9,$10)
+        values ($1,$2,$3::date,$4::text,($3::date + $4::time) at time zone 'America/Lima',$5,$6,$7,$8,$9,$10)
         returning id`,
       [driver.user_id, item.from, item.date, item.time, price, capacity, driver.vtype, driver.model, driver.plate, driver.color])).rows[0];
       trips.push({ id: String(inserted.id), ...item, existing: false });

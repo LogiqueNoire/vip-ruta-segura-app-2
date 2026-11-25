@@ -179,3 +179,48 @@ create table if not exists live_locations (
   speed_kmh   real,
   updated_at  timestamptz not null default now()
 );
+
+-- A durable revision marker lets the server retry the Sheets mirror after failures or restarts.
+create table if not exists sheets_sync_state (
+  id              smallint primary key check (id = 1),
+  revision        bigint not null default 1,
+  synced_revision bigint not null default 0,
+  last_synced_at  timestamptz
+);
+insert into sheets_sync_state (id) values (1) on conflict (id) do nothing;
+
+create or replace function mark_sheets_sync_dirty() returns trigger
+language plpgsql as $$
+begin
+  update sheets_sync_state set revision = revision + 1 where id = 1;
+  return null;
+end;
+$$;
+
+drop trigger if exists sheets_sync_users on users;
+create trigger sheets_sync_users after insert or update or delete on users
+  for each statement execute function mark_sheets_sync_dirty();
+drop trigger if exists sheets_sync_driver_profiles on driver_profiles;
+create trigger sheets_sync_driver_profiles after insert or update or delete on driver_profiles
+  for each statement execute function mark_sheets_sync_dirty();
+drop trigger if exists sheets_sync_trips on trips;
+create trigger sheets_sync_trips after insert or update or delete on trips
+  for each statement execute function mark_sheets_sync_dirty();
+drop trigger if exists sheets_sync_bookings on bookings;
+create trigger sheets_sync_bookings after insert or update or delete on bookings
+  for each statement execute function mark_sheets_sync_dirty();
+drop trigger if exists sheets_sync_booking_seats on booking_seats;
+create trigger sheets_sync_booking_seats after insert or update or delete on booking_seats
+  for each statement execute function mark_sheets_sync_dirty();
+drop trigger if exists sheets_sync_payments on payments;
+create trigger sheets_sync_payments after insert or update or delete on payments
+  for each statement execute function mark_sheets_sync_dirty();
+drop trigger if exists sheets_sync_reviews on reviews;
+create trigger sheets_sync_reviews after insert or update or delete on reviews
+  for each statement execute function mark_sheets_sync_dirty();
+drop trigger if exists sheets_sync_incidents on incidents;
+create trigger sheets_sync_incidents after insert or update or delete on incidents
+  for each statement execute function mark_sheets_sync_dirty();
+drop trigger if exists sheets_sync_live_locations on live_locations;
+create trigger sheets_sync_live_locations after insert or update or delete on live_locations
+  for each statement execute function mark_sheets_sync_dirty();
