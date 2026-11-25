@@ -1278,7 +1278,7 @@ admin.post('/incidents/:id/resolve', A(async (req, res) => {
 
 /* ================= archivos estáticos y errores ================= */
 api.use((req, res) => res.status(404).json({ error: 'No existe.' }));
-app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], setHeaders: (res, p) => { if (/sw\.js$|index\.html$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); } }));
+app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], setHeaders: (res, p) => { if (/sw\.js$|index\.html$|app\.js$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); } }));
 app.use((err, req, res, _next) => {
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'El archivo es demasiado grande.' });
   if (err instanceof SyntaxError && err.status === 400) return res.status(400).json({ error: 'Datos no válidos.' });
