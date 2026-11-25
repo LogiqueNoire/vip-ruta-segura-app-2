@@ -122,12 +122,11 @@ const SPECIAL = [{md:'07-28',n:'Fiestas Patrias'},{md:'07-29',n:'Fiestas Patrias
 const RATE_TAGS = ['Puntual','Manejo seguro','Vehículo limpio','Amable','Respetó la ruta','Buen trato al equipaje'];
 const BAD_TAGS = ['Exceso de velocidad','Se desvió de la ruta','Me cobró extra','Placa distinta a la app'];
 
-function promoFor(t, full){
+function promoFor(t){
   const list = [];
   if (daysFromToday(t.date) >= 2) list.push({ k:'ant', name:'Reserva anticipada', pct:10 });
   const sp = SPECIAL.find(x => x.md === t.date.slice(5)); if (sp) list.push({ k:'esp', name:sp.n, pct:10 });
   const h = +t.time.slice(0,2); if (h >= 10 && h < 15) list.push({ k:'val', name:'Horario valle', pct:10 });
-  if (full) list.push({ k:'full', name:'Vehículo completo', pct:15 });
   list.sort((a,b) => b.pct - a.pct);
   return list[0] || null;
 }
@@ -418,7 +417,7 @@ function legend(){ return '<div class="legend"><span><i style="border-color:var(
 function tripCard(t){
   const d = driverFor(t), v = VT[t.vtype]; const free = t.free;
   const gone = depDate(t) < nowSim() || t.status !== 'active'; const full = free === 0; const dis = gone || full;
-  const pr = promoFor(t, false); const unit = t.price, fin = pr ? unit*(1-pr.pct/100) : unit;
+  const pr = promoFor(t); const unit = t.price, fin = pr ? unit*(1-pr.pct/100) : unit;
   const bars = Array.from({length:t.seats}, (_,i) => '<i class="'+(i < free ? 'f' : '')+'"></i>').join('');
   return '<button class="tc" '+(dis?'disabled':'data-act="open" data-arg="'+esc(t.id)+'"')+' aria-label="Salida '+t.time+', '+v.label+', '+free+' asientos libres, '+soles(fin)+'">'+
     (pr && !dis ? '<span class="ptag">'+ic('tag',13)+pr.name+' −'+pr.pct+'%</span>' : '')+
@@ -445,7 +444,7 @@ const CHANGES = [
   { src:'Sprint Review · 08-10-26', fb:'Cada chofer debe tener su panel y la regla de 15 minutos.', ch:'Panel del conductor con ventas en vivo y el asiento se libera solo a los 20 min.', go:'d_manifest' },
   { src:'Grupo 02 · 15-10-26', fb:'Faltan filtros de verificación de pasajeros y conductores.', ch:'Insignias de verificación en ambos perfiles (DNI, licencia, SOAT, antecedentes).', go:'trip' },
   { src:'Grupo 01', fb:'Ver fotos del interior de la camioneta antes de reservar.', ch:'Sección «Conoce tu vehículo»: exterior, interior y maletera.', go:'trip' },
-  { src:'Grupo 02 y Grupo 03', fb:'Precios muy estables, faltan promociones.', ch:'Descuentos por anticipación, horario valle, fechas especiales y vehículo completo.', go:'home' },
+  { src:'Grupo 02 y Grupo 03', fb:'Precios muy estables, faltan promociones.', ch:'Descuentos por anticipación, horario valle y fechas especiales.', go:'home' },
   { src:'Prueba PVIP-01', fb:'Compartir el viaje en tiempo real y botón SOS (importancia 5).', ch:'GPS del vehículo en el mapa, compartir ubicación y SOS.', go:'live' }
 ];
 
@@ -490,7 +489,6 @@ SCREENS.landing = () => {
      faq('¿Cuánto equipaje puedo llevar?','En auto y minivan, 1 maleta mediana y 1 mochila por pasajero. En camioneta entra 1 maleta grande.')+
      faq('¿Cuánto tiempo me espera el conductor?','Llega 15 minutos antes. El conductor espera como máximo 20 minutos después de la hora de salida; si no llegas, pierdes tu asiento.')+
      faq('¿Cómo sé que el conductor es el correcto?','Antes de subir, compara la foto, el nombre y la placa con los que ves en tu boleto. Si algo no coincide, no subas y repórtalo desde la app.')+
-     faq('¿Puedo reservar el vehículo completo?','Sí. Si todos los asientos están libres, reservas la unidad entera con 15 % de descuento.')+
    '</section>'+
    '<section><div class="cta2"><button class="btn" data-act="start" data-arg="pasajero">Empezar ahora</button></div></section>'+
    '<section class="foot"><b>VIP Ruta Segura</b><span>Prototipo V3 · Diseño de Productos Digitales · Laboratorio 07. Equipo: Diaz Huaman, Herrada Moncada y Vargas Garcia.</span><span>El pago va directo al Yape o Plin del conductor y él confirma tu asiento. Tus documentos solo los ve el equipo de VIP.</span></section>'+
@@ -501,7 +499,6 @@ function faq(q, a){ return '<details><summary>'+q+'</summary><p>'+a+'</p></detai
 function promoCards(ns){
   return '<div class="promo"><span class="pct">−10%</span><b>Reserva anticipada</b><span>Compra con 2 días o más de anticipación.</span></div>'+
     '<div class="promo light"><span class="pct">−10%</span><b>Horario valle</b><span>Salidas entre 10:00 a. m. y 3:00 p. m.</span></div>'+
-    '<div class="promo"><span class="pct">−15%</span><b>Vehículo completo</b><span>Reserva todos los asientos para tu familia o grupo.</span></div>'+
     '<div class="promo light"><span class="pct">−10%</span><b>'+esc(ns.n)+'</b><span>'+dateLong(ymd(ns.d))+'. También Fiestas Patrias, Navidad y Año Nuevo.</span></div>';
 }
 
@@ -713,7 +710,7 @@ LOAD.p_trip = p => loadTripFull(p.id);
 SCREENS.p_trip = (p) => {
   const t = trip(p.id); if (!t) return top('Viaje')+'<main class="scr"><div class="empty">Este viaje ya no está disponible.</div></main>';
   const d = driverFor(t), v = VT[t.vtype]; const tab = F.vtab || 'ext'; const free = t.free;
-  const pr = promoFor(t,false); const unit = t.price, fin = pr ? unit*(1-pr.pct/100) : unit;
+  const pr = promoFor(t); const unit = t.price, fin = pr ? unit*(1-pr.pct/100) : unit;
   const ph = d.photos || {};
   let gal = '';
   if (tab === 'ext') gal = ph.ext ? '<img src="'+esc(ph.ext)+'" alt="Foto exterior del vehículo">' : vehSVG(t.vtype, d.color);
@@ -749,21 +746,20 @@ LOAD.p_seats = async (p) => {
   setSeatState(t, r.seatState); syncHold(t); return Object.assign({}, r, { trip:t });
 };
 function syncHold(t){ const si = seatInfo(t); hold.tripId = t.id; hold.seats = si.holding.slice(); hold.until = si.holdUntil ? Date.parse(si.holdUntil) : 0; hold.bookingId = si.holdId || null; }
-function holdTotal(t, sel, others){
-  const isFull = others === 0 && sel === t.seats; const pr = promoFor(t, isFull);
-  return { isFull, pr, sub:sel*t.price, total: sel * t.price * (pr ? 1 - pr.pct/100 : 1) };
+function holdTotal(t, sel){
+  const pr = promoFor(t);
+  return { pr, sub:sel*t.price, total: sel * t.price * (pr ? 1 - pr.pct/100 : 1) };
 }
 SCREENS.p_seats = (p) => {
   const t = trip(p.id); if (!t) return top('Asientos')+'<main class="scr"><div class="empty">Este viaje ya no está disponible.</div></main>';
   const si = seatInfo(t); const sel = si.holding.length; const occ = si.occupied.length; const others = occ - sel;
-  const free = t.seats - occ; const ht = holdTotal(t, sel, others); const d = driverFor(t);
+  const free = t.seats - occ; const ht = holdTotal(t, sel); const d = driverFor(t);
   return top('Elige tu asiento', { sub: t.time+' · '+VT[t.vtype].label+' · '+d.plate })+
   '<main class="scr">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div class="occbar" style="flex:1;min-width:160px"><small class="muted" style="font-weight:700"><span id="occtxt">'+free+' libres · '+sel+' elegidos · '+others+' ocupados</span></small><div class="ob"><i style="width:'+(others/t.seats*100)+'%;background:#B7BCC5"></i><i style="width:'+(sel/t.seats*100)+'%;background:var(--gold)"></i></div></div>'+
     (sel ? '<span class="holdchip">'+ic('clock',15)+'Guardado por <b data-hold class="tab">'+mmss(hold.until-Date.now())+'</b></span>' : '')+'</div>'+
     seatMap(t, true)+ legend()+
-    (others === 0 && t.seats > 1 ? '<button class="card tight" data-act="fullVeh" style="text-align:left;'+(ht.isFull?'border-color:var(--ink);box-shadow:0 0 0 3px var(--gold)':'')+'"><div class="off"><span class="oi" style="background:var(--gold);color:var(--ink)">'+ic('users',22)+'</span><div><b>'+(ht.isFull?'Vehículo completo reservado':'Reservar el vehículo completo')+'</b><small>Todos los asientos libres: 15 % de descuento para tu grupo.</small></div><span class="bdg gold">−15%</span></div></button>' : '')+
-    (S.search.pax > 1 && sel < S.search.pax ? '<div class="note info">'+ic('info',18)+'Buscaste '+S.search.pax+' pasajeros. Te falta elegir '+(S.search.pax - sel)+' asiento'+(S.search.pax-sel>1?'s':'')+'.</div>' : '')+
+    (S.search.pax > 1 ? '<div class="note info">'+ic('info',18)+'Reserva un asiento por operación. Repite el proceso para cada pasajero.</div>' : '')+
   '</main>'+
   '<div class="bar"><div class="tot"><small>'+(sel ? 'Asiento'+(sel>1?'s':'')+' '+si.holding.slice().sort((a,b)=>a-b).join(', ')+(ht.pr?' · '+ht.pr.name+' −'+ht.pr.pct+'%':'') : 'Elige un asiento')+'</small><b>'+soles(ht.total)+'</b></div><button class="btn" data-act="toPay" '+(sel?'':'disabled')+'>Ir a pagar '+ic('chev',20)+'</button></div>';
 };
@@ -776,7 +772,7 @@ SCREENS.p_pay = () => {
   const t = trip(hold.tripId); const si = t ? seatInfo(t) : null;
   if (!t || !si.holding.length) return top('Pago')+'<main class="scr"><div class="empty"><h3 class="h-sec">Tu reserva expiró</h3><p>Vuelve a elegir tu asiento.</p><button class="btn sm" data-act="back">Volver</button></div></main>';
   const d = driverFor(t); const ms = payMethods(t); const m = ms.indexOf(F.method) >= 0 ? F.method : ms[0]; F.method = m;
-  const ht = holdTotal(t, si.holding.length, si.occupied.length - si.holding.length); const num = (DB_.pay[t.id] || {})[m];
+  const ht = holdTotal(t, si.holding.length); const num = (DB_.pay[t.id] || {})[m];
   const label = m === 'yape' ? 'Yape' : 'Plin';
   return top('Pago', { sub: 'Paso final' })+
   '<main class="scr">'+
@@ -1020,7 +1016,7 @@ SCREENS.d_create = () => {
     '<div class="row2">'+field('cdate','Fecha',{type:'date', value:F.cdate})+field('ctime','Hora de salida',{type:'time', value:F.ctime})+'</div>'+
     '<div class="card tight"><div class="off"><span style="width:96px;flex-shrink:0">'+vehSVG(veh.type, veh.color)+'</span><div><b>'+esc(veh.model||v.label)+'</b><small><span class="plate">'+esc(veh.plate||'—')+'</span> · '+v.desc+'</small></div></div></div>'+
     '<div class="row2">'+field('cprice','Precio por asiento (S/)',{type:'number', mode:'decimal', value:F.cprice, hint:'Sugerido: '+soles(v.price)+' · entre S/ 20 y S/ 120'})+field('cseats','Asientos que ofreces',{type:'number', mode:'numeric', value:F.cseats, hint:'Máximo '+v.seats})+'</div>'+
-    '<div class="note info">'+ic('info',18)+'<span>'+(ed ? 'Los pasajeros que ya reservaron recibirán un correo con el cambio. Conservan el precio que pagaron.' : 'Las promociones (anticipada, horario valle, fechas especiales y vehículo completo) se aplican solas. VIP asume el descuento.')+'</span></div>'+
+    '<div class="note info">'+ic('info',18)+'<span>'+ (ed ? 'Los pasajeros que ya reservaron recibirán un correo con el cambio. Conservan el precio que pagaron.' : 'Las promociones (anticipada, horario valle y fechas especiales) se aplican solas. VIP asume el descuento.')+'</span></div>'+
     '<p class="hint" id="cerr"></p>'+
   '</main>'+
   '<div class="bar"><button class="btn" data-act="publish">'+ic('check')+(ed?'Guardar cambios':'Publicar viaje')+'</button></div>';
@@ -1450,9 +1446,9 @@ ACT.vtab = (x) => { F.vtab = x; render(true); };
 
 /* asientos: se guardan en el servidor 10 minutos; si otra persona lo toma antes, avisa */
 ACT.toSeats = (id) => { hold = { tripId:id, bookingId:null, seats:[], until:0 }; go('p_seats', { id }); };
-async function holdSeats(t, want){
+async function holdSeats(t, seat, liberar){
   try{
-    const r = await POST('/trips/'+encodeURIComponent(t.id)+'/hold', { seats:want });
+    const r = await POST('/trips/'+encodeURIComponent(t.id)+'/hold', { seat:Number(seat), liberar:Boolean(liberar) });
     setSeatState(t, r.seatState); syncHold(t); return r;
   }catch(e){
     if (e.status === 409 && e.data && e.data.taken){
@@ -1467,18 +1463,11 @@ ACT.seat = (n) => once(async () => {
   n = Number(n); const t = trip(hold.tripId); const si = seatInfo(t);
   if (si.mine.indexOf(n) >= 0 && si.holding.indexOf(n) < 0) return toast('Este asiento ya es tuyo.','bad');
   if (si.occupied.indexOf(n) >= 0 && si.holding.indexOf(n) < 0){ toast('Este asiento ya fue reservado. Elige otro.','bad'); try{ const r = await GET('/trips/'+encodeURIComponent(t.id)+'/seats'); setSeatState(t, r.seatState); syncHold(t); }catch(_){} return render(true); }
-  const want = si.holding.slice(); const i = want.indexOf(n); const adding = i < 0; if (adding) want.push(n); else want.splice(i,1);
-  const r = await holdSeats(t, want); if (!r) return;
+  const adding = si.holding[0] !== n;
+  const r = await holdSeats(t, n, !adding); if (!r) return;
   render(true);
   const left = t.seats - seatInfo(t).occupied.length;
   toast(adding ? 'Asiento '+n+' reservado. Quedan '+left+' asiento'+(left===1?'':'s')+'.' : 'Asiento '+n+' liberado.', adding ? 'ok' : 'gold');
-});
-ACT.fullVeh = () => once(async () => {
-  const t = trip(hold.tripId); const si = seatInfo(t);
-  if (si.occupied.length - si.holding.length) return;
-  const all = Array.from({length:t.seats}, (_,i) => i+1); const full = si.holding.length === t.seats;
-  const r = await holdSeats(t, full ? [] : all); if (!r) return; render(true);
-  if (!full) toast('Vehículo completo: '+t.seats+' asientos con 15 % de descuento.');
 });
 ACT.toPay = () => { if (!hold.seats.length) return; go('p_pay'); };
 ACT.method = (m) => { F.method = m; render(true); };

@@ -192,17 +192,18 @@ async function leerTabla(nombre, filtros = {}) {
 
 async function leerAsientosViaje(tripId, userId) {
   const remoto = await leerDesdeMake({
-    tabla: 'asientos_reserva', trip_id: String(tripId), user_id: String(userId), seats: []
+    tabla: 'asientos_reserva', trip_id: String(tripId), user_id: String(userId)
   });
   return filasRespuesta(remoto, 'asientos_reserva')
     .filter(fila => texto(fila.trip_id) === texto(tripId));
 }
 
-async function reservarAsientosMake(tripId, userId, seats) {
+async function reservarAsientoMake(tripId, userId, seat, liberar = false) {
   if (!READ_WEBHOOK_URL) throw new Error('Falta SHEETS_READ_WEBHOOK_URL para reservar asientos en Make.');
   if (READ_WEBHOOK_URL === String(process.env.MAKE_WEBHOOK_URL || '').trim()) {
     throw new Error('El webhook de lectura debe ser distinto al webhook de escritura.');
   }
+  if (!Number.isInteger(seat) || seat < 1) throw new Error('Asiento no válido para reservar en Make.');
   const response = await fetch(READ_WEBHOOK_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -210,7 +211,8 @@ async function reservarAsientosMake(tripId, userId, seats) {
       operacion: 'reservar_asientos',
       trip_id: String(tripId),
       user_id: String(userId),
-      seats
+      seat,
+      liberar
     })
   });
   const raw = await response.text();
@@ -371,7 +373,7 @@ async function listarIncidentesPanel() {
 }
 
 module.exports = {
-  leerHoja, leerTabla, leerAsientosViaje, reservarAsientosMake, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
+  leerHoja, leerTabla, leerAsientosViaje, reservarAsientoMake, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
   listarReservasUsuario, listarResenasConductor, listarPagos, listarIncidentes,
   listarPagosPanel, listarIncidentesPanel, normalizarFilas, estadoAsientosDesdeFilas
 };

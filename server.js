@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
 const { verifyPassword } = require('./password-utils');
 const { q, tx, migrate, pool } = require('./db');
 const { sendMail, lookupDni, esc, MAIL_OK } = require('./services');
-const { buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, leerTabla, leerAsientosViaje, reservarAsientosMake, listarViajes, listarReservasUsuario, listarResenasConductor, listarPagosPanel, listarIncidentesPanel, estadoAsientosDesdeFilas } = require('./sheets-store');
+const { buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, leerTabla, leerAsientosViaje, reservarAsientoMake, listarViajes, listarReservasUsuario, listarResenasConductor, listarPagosPanel, listarIncidentesPanel, estadoAsientosDesdeFilas } = require('./sheets-store');
 
 const PROD = process.env.NODE_ENV === 'production';
 const SECRET = process.env.SESSION_SECRET || (PROD ? '' : 'dev-secret-cambia-esto-en-el-env-0123456789');
@@ -183,24 +183,20 @@ async function driversMap(ids) {
 }
 
 /* ================= precios y promociones ================= */
-function promoFor(trip, full) {
+function promoFor(trip) {
   const list = [];
   const today = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10);
   const days = Math.round((Date.parse(trip.date + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 864e5);
   if (days >= 2) list.push({ name: 'Reserva anticipada', pct: 10 });
   if (SPECIAL.includes(trip.date.slice(5))) list.push({ name: 'Fecha especial', pct: 10 });
   const h = +trip.time.slice(0, 2); if (h >= 10 && h < 15) list.push({ name: 'Horario valle', pct: 10 });
-  if (full) list.push({ name: 'Vehículo completo', pct: 15 });
   list.sort((a, b) => b.pct - a.pct); return list[0] || null;
 }
 async function reprice(c, bookingId) {
   const b = (await c.query('select b.id, b.trip_id from bookings b where b.id = $1', [bookingId])).rows[0];
   const t = (await c.query(`select ${TRIP_COLS} from trips t where t.id = $1`, [b.trip_id])).rows[0];
   const mine = (await c.query('select count(*)::int n from booking_seats where booking_id = $1 and active', [bookingId])).rows[0].n;
-  const others = (await c.query(`select count(*)::int n from booking_seats bs join bookings x on x.id = bs.booking_id
-     where bs.trip_id = $1 and bs.active and bs.booking_id <> $2 and (x.status in ('por_confirmar','confirmado') or (x.status = 'hold' and x.hold_until > now()))`, [b.trip_id, bookingId])).rows[0].n;
-  const full = others === 0 && mine === t.seats;
-  const pr = promoFor(t, full); const sub = Math.round(mine * t.price * 100) / 100;
+  const pr = promoFor(t); const sub = Math.round(mine * t.price * 100) / 100;
   const total = Math.round(sub * (pr ? 1 - pr.pct / 100 : 1) * 100) / 100;
   await c.query('update bookings set subtotal=$2, promo_name=$3, promo_pct=$4, total=$5 where id=$1', [bookingId, sub, pr ? pr.name : null, pr ? pr.pct : 0, total]);
   return { subtotal: sub, promo: pr, total };
@@ -520,10 +516,12 @@ const bookingSeats = async (c, id) => (await c.query('select seat from booking_s
 
 api.post('/trips/:id/hold', needUser, A(async (req, res) => {
   limit('hold|' + req.user.id, 120, 600e3);
-  const want = [...new Set((Array.isArray(req.body.seats) ? req.body.seats : []).map(Number))];
-  if (want.length > 8 || want.some(n => !Number.isInteger(n) || n < 1)) fail(400, 'Asiento no válido.');
+  const seat = req.body.seat;
+  if (!Number.isInteger(seat) || seat < 1) fail(400, 'Debes enviar un solo número de asiento válido.');
+  const release = req.body.liberar === true;
+  const want = release ? [] : [seat];
   if (SHEETS_READS) {
-    const result = await reservarAsientosMake(req.params.id, req.user.id, want);
+    const result = await reservarAsientoMake(req.params.id, req.user.id, seat, release);
     if (result.ok === false) {
       const taken = Array.isArray(result.taken) ? result.taken : [];
       if (taken.length) fail(409, S(result.message) || 'Este asiento ya fue reservado. Elige otro.', { taken });

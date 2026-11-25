@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 process.env.SHEETS_READ_WEBHOOK_URL = 'https://make.example.test/read';
-const { normalizarFilas, estadoAsientosDesdeFilas, leerTabla, leerAsientosViaje, reservarAsientosMake, listarViajes, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId } = require('../sheets-store');
+const { normalizarFilas, estadoAsientosDesdeFilas, leerTabla, leerAsientosViaje, reservarAsientoMake, listarViajes, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId } = require('../sheets-store');
 
 const tripColumns = [
   'id','driver_id','from_off','trip_date','dep_time','dep_at','price','seats',
@@ -64,11 +64,11 @@ test('reads trip seats from Make in one request with trip, user, and seat fields
 
   const seats = await leerAsientosViaje(1234, 8);
 
-  assert.deepEqual(request, { operacion:'buscar', tabla:'asientos_reserva', trip_id:'1234', user_id:'8', seats:[] });
+  assert.deepEqual(request, { operacion:'buscar', tabla:'asientos_reserva', trip_id:'1234', user_id:'8' });
   assert.equal(seats.length, 1);
 });
 
-test('sends one Make reservation request with the selected seats', async t => {
+test('sends one Make reservation request with a scalar seat value', async t => {
   const originalFetch = global.fetch;
   t.after(() => { global.fetch = originalFetch; });
   let request;
@@ -77,9 +77,12 @@ test('sends one Make reservation request with the selected seats', async t => {
     return new Response(JSON.stringify({ ok:true }), { status:200, headers:{'content-type':'application/json'} });
   };
 
-  const result = await reservarAsientosMake(1234, 8, [2,3]);
+  const result = await reservarAsientoMake(1234, 8, 2);
 
-  assert.deepEqual(request, { operacion:'reservar_asientos', trip_id:'1234', user_id:'8', seats:[2,3] });
+  assert.deepEqual(request, { operacion:'reservar_asientos', trip_id:'1234', user_id:'8', seat:2, liberar:false });
+  const releaseResult = await reservarAsientoMake(1234, 8, 2, true);
+  assert.deepEqual(request, { operacion:'reservar_asientos', trip_id:'1234', user_id:'8', seat:2, liberar:true });
+  assert.equal(releaseResult.ok, true);
   assert.equal(result.ok, true);
 });
 
