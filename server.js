@@ -126,9 +126,11 @@ async function loadUser(req, res, next) {
     if (t) {
       let p = null; try { p = jwt.verify(t, SECRET); } catch (_) {}
       if (p) {
-        const row = SHEETS_READS
-          ? (p.email ? await buscarUsuarioPorCorreo(p.email) : await buscarUsuarioPorId(p.uid))
-          : (p.email ? await buscarUsuarioNeonPorCorreo(p.email) : await buscarUsuarioNeonPorId(p.uid));
+        let row = null;
+        if (SHEETS_READS) {
+          try { row = p.email ? await buscarUsuarioPorCorreo(p.email) : await buscarUsuarioPorId(p.uid); } catch (_) {}
+        }
+        if (!row) row = p.email ? await buscarUsuarioNeonPorCorreo(p.email) : await buscarUsuarioNeonPorId(p.uid);
         const rowId = row && (row.id || row.request_id);
         const sameEmail = p.email && row && S(row.email).toLowerCase() === S(p.email).toLowerCase();
         const u = row && (S(rowId) === S(p.uid) || sameEmail) ? usuarioDesdeHoja(row) : null;
@@ -421,7 +423,11 @@ api.post('/auth/register', A(async (req, res) => {
 api.post('/auth/login', A(async (req, res) => {
   const email = S(req.body.email).trim().toLowerCase();
   limit('login|' + req.ip + '|' + email, 10, 15 * 60e3);
-  const record = SHEETS_READS ? await buscarUsuarioPorCorreo(email) : await buscarUsuarioNeonPorCorreo(email);
+  let record = null;
+  if (SHEETS_READS) {
+    try { record = await buscarUsuarioPorCorreo(email); } catch (_) {}
+  }
+  if (!record) record = await buscarUsuarioNeonPorCorreo(email);
   const u = usuarioDesdeHoja(record);
   if (!u) fail(401, 'El correo o la contraseña no coinciden.');
   const passHash = u.pass_hash;
