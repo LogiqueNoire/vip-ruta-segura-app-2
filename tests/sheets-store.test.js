@@ -241,7 +241,7 @@ test('finds a user by a non-numeric Make ID', async t => {
   const originalFetch = global.fetch;
   t.after(() => { global.fetch = originalFetch; });
   const id = 'verificacion-usuario-002';
-  const user = { id, email:'ejemplo@gmail.com', name:'Usuario Demo' };
+  const user = { id, email:'ejemplo@gmail.com', name:'Usuario Demo', yape_phone:'987654321', plin_phone:'912345678' };
   const requests = [];
   global.fetch = async (_url, options) => {
     const payload = JSON.parse(options.body);
@@ -252,6 +252,8 @@ test('finds a user by a non-numeric Make ID', async t => {
   const found = await buscarUsuarioPorId(id);
 
   assert.equal(found.id, id);
+  assert.equal(found.yape_phone, '987654321');
+  assert.equal(found.plin_phone, '912345678');
   assert.equal(requests.length, 2);
   assert.equal(requests[0].id, id);
   assert.equal(requests[1].id, undefined);

@@ -42,7 +42,7 @@ const usuarioDesdeHoja = u => u && ({
   id: String(u.id || u.request_id), email: S(u.email), dni: S(u.dni), name: S(u.name), phone: S(u.phone),
   pass_hash: S(u.pass_hash), is_admin: ['true', '1'].includes(S(u.is_admin).toLowerCase()), blocked: ['true', '1'].includes(S(u.blocked).toLowerCase()),
   blocked_reason: S(u.blocked_reason), pax_status: S(u.pax_status || 'none'), pax_note: S(u.pax_note), created_at: u.created_at || null,
-  drv_status: S(u.drv_status || u.driver_status)
+  drv_status: S(u.drv_status || u.driver_status), yape_phone: S(u.yape_phone || u.yape), plin_phone: S(u.plin_phone || u.plin)
 });
 
 // Sincronización de prototipo: Make recibe los campos de las tablas; los archivos siguen en Neon.
@@ -485,6 +485,13 @@ api.get('/trips/:id', needUser, A(async (req, res) => {
   const t = await loadTripForRead(req.params.id); if (!t) fail(404, 'Este viaje ya no está disponible.');
   const drivers = await driversMap([t.driver_id]);
   const dp = (await q('select yape_phone, plin_phone from driver_profiles where user_id = $1', [t.driver_id])).rows[0] || {};
+  if (SHEETS_READS) {
+    const driverRecord = await buscarUsuarioPorId(t.driver_id);
+    if (driverRecord) {
+      dp.yape_phone = S(driverRecord.yape_phone || driverRecord.yape) || dp.yape_phone;
+      dp.plin_phone = S(driverRecord.plin_phone || driverRecord.plin) || dp.plin_phone;
+    }
+  }
   const rv = (await listarResenasConductor(t.driver_id)).slice(0, 4);
   res.json({ trip: tripDto(t), drivers, pay: { yape: dp.yape_phone || null, plin: dp.plin_phone || null }, seatState: await seatState(t.id, req.user.id),
     reviews: rv.map(x => ({ s: x.stars, t: x.comment, tags: x.tags, a: shortName(x.name), at: x.created_at })) });
