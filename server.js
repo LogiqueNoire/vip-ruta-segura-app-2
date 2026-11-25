@@ -491,7 +491,7 @@ api.get('/trips/:id', needUser, A(async (req, res) => {
   const t = await loadTripForRead(req.params.id); if (!t) fail(404, 'Este viaje ya no está disponible.');
   const drivers = await driversMap([t.driver_id]);
   const dp = (await q('select yape_phone, plin_phone from driver_profiles where user_id = $1', [t.driver_id])).rows[0] || {};
-  if (SHEETS_READS) {
+  if (SHEETS_READS || (S(process.env.SHEETS_READ_WEBHOOK_URL).trim() && (!dp.yape_phone || !dp.plin_phone))) {
     const driverRecord = await buscarUsuarioPorId(t.driver_id);
     if (driverRecord) {
       dp.yape_phone = S(driverRecord.yape_phone || driverRecord.yape) || dp.yape_phone;
