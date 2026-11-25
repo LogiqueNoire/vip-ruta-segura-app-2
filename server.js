@@ -422,6 +422,7 @@ api.post('/auth/logout', (req, res) => { clearSession(res); res.json({ ok: true 
 /* ---------- mi cuenta ---------- */
 api.get('/me', A(async (req, res) => {
   if (!req.user) return res.json({ me: null, blocked: req.blocked ? (req.blocked === true ? '' : req.blocked) : undefined });
+  if (req.user.drv_status) await ensureUserInNeon(req.user).catch(() => {});
   res.json({ me: await meDto(req.user.id, req.user) });
 }));
 

@@ -614,6 +614,7 @@ function vBody(role, k){
   if (k === 'dni_photo') return uplBox('dni_photo','Foto de tu DNI','Que se lea el número y se vea tu cara', a.files.dni_photo, 'id');
   if (k === 'selfie') return uplBox('selfie','Tómate una selfie','Con buena luz y sin lentes oscuros', a.files.selfie, 'camera');
   if (k === 'emerg') return '<div class="row2">'+field('ename','Nombre',{ph:'Ej. Mamá', value:a.emerg.name})+field('ephone','Celular',{mode:'numeric', max:9, ph:'9XX XXX XXX', value:a.emerg.phone})+'</div><button class="btn sm dark" data-act="saveEmerg">Guardar contacto</button>';
+  if (!c) return '<p class="muted" style="font-size:14px;padding:4px 0">Cargando perfil de conductor…</p>';
   if (k === 'lic') return '<div class="row2">'+field('licnum','N.º de licencia',{ph:'Q12345678', max:9, value:c.lic.num})+'<div class="fld"><label for="f-liccat">Categoría</label><select id="f-liccat" data-f="liccat">'+['A-I','A-IIa','A-IIb','A-IIIa','A-IIIb','A-IIIc'].map(x => '<option'+((F.liccat||c.lic.cat)===x?' selected':'')+'>'+x+'</option>').join('')+'</select></div></div>'+uplBox('lic','Foto de la licencia','Por delante, que se lea el número', c.lic.file, 'card')+'<button class="btn sm dark" data-act="saveLic">Guardar licencia</button>';
   if (k === 'veh'){
     const vt = F.vtype || c.veh.type;
