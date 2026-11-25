@@ -86,6 +86,16 @@ test('sends one Make reservation request with a scalar seat value', async t => {
   assert.equal(result.ok, true);
 });
 
+test('accepts Make webhook Accepted response for the UI-only selection step', async t => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  global.fetch = async () => new Response('Accepted', { status:200 });
+
+  const result = await reservarAsientoMake(1234, 8, 2);
+
+  assert.deepEqual(result, { ok:true, accepted:true });
+});
+
 test('maps the users sheet format and its email column', () => {
   const columns = ['id','email','dni','name','phone','pass_hash','is_admin','blocked','blocked_reason','emerg_name','emerg_phone','pax_status','pax_note','created_at'];
   const values = ['2','example@example.com','70000002','Demo User','900000002','$2b$10$hash','FALSE','FALSE','','Emergency','911111112','activo','','2026-11-19T04:30:00Z'];

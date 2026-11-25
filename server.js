@@ -528,6 +528,10 @@ api.post('/trips/:id/hold', needUser, A(async (req, res) => {
       fail(409, S(result.message) || 'Make no pudo reservar esos asientos.');
     }
     if (result.ok !== true) fail(502, 'Make no confirmó la reserva de asientos.');
+    if (result.accepted === true && !result.seatState) {
+      res.json({ booking: result.booking || null, accepted: true });
+      return;
+    }
     res.json({ booking: result.booking || null, seatState: seatStateFromMake(result) });
     return;
   }

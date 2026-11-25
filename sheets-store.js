@@ -216,6 +216,7 @@ async function reservarAsientoMake(tripId, userId, seat, liberar = false) {
     })
   });
   const raw = await response.text();
+  if (response.ok && raw.trim() === 'Accepted') return { ok: true, accepted: true };
   let result;
   try { result = JSON.parse(raw); } catch (_) {
     throw new Error('Make reserva devolvió una respuesta no JSON.');

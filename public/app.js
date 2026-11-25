@@ -765,7 +765,19 @@ SCREENS.p_seats = (p) => {
 };
 
 /* ---------- pago manual: Yape o Plin directo al conductor */
-LOAD.p_pay = async () => { const t = trip(hold.tripId); if (!t) return null; const r = await loadTripFull(t.id); syncHold(r.trip); return r; };
+LOAD.p_pay = async () => {
+  const t = trip(hold.tripId); if (!t) return null;
+  const selected = hold.seats.slice(), until = hold.until, bookingId = hold.bookingId;
+  const r = await loadTripFull(t.id);
+  if (!bookingId && selected.length) {
+    const state = seatInfo(r.trip), occupied = new Set(state.occupied);
+    selected.forEach(seat => occupied.add(seat));
+    setSeatState(r.trip, Object.assign({}, state, {
+      occupied:[...occupied], holding:selected, holdUntil:until ? new Date(until).toISOString() : null, holdId:null
+    }));
+  }
+  syncHold(r.trip); return r;
+};
 function payMethods(t){ const p = DB_.pay[t.id] || {}; return ['yape','plin'].filter(m => p[m]); }
 const fmtPhone = s => String(s||'').replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3');
 SCREENS.p_pay = () => {
@@ -787,12 +799,13 @@ SCREENS.p_pay = () => {
       '<button class="btn sm line" data-act="copyNum" data-arg="'+num+'">'+ic('copy',16)+'Copiar número</button></section>'+
       '<section class="card">'+field('opno','Número de operación',{ph:'Ej. 12345678', max:20, value:F.opno})+uplBox('capture','Captura de tu pago','Foto o captura del comprobante', F.capture, 'camera')+'</section>' :
       '<div class="note bad">'+ic('alert',18)+'<span>Este conductor aún no configuró dónde recibir pagos. Elige otro viaje o inténtalo más tarde.</span></div>')+
+    (!hold.bookingId ? '<div class="note info">'+ic('info',18)+'<span>Make aceptó la petición, pero aún no confirmó una reserva. Puedes revisar el pago; el envío del comprobante se habilitará cuando exista una reserva confirmada.</span></div>' : '')+
     '<div class="note info">'+ic('lock',18)+'<span>El pago va directo al conductor. Tu asiento queda <b>por confirmar</b> hasta que él lo apruebe; recibirás un correo cuando esté listo.</span></div>'+
   '</main>'+
-  '<div class="bar"><div class="tot"><small>Total</small><b>'+soles(ht.total)+'</b></div><button class="btn" id="btn-pay" data-act="pay" '+(payValid()?'':'disabled')+'>Ya pagué · enviar comprobante</button></div>';
+  '<div class="bar"><div class="tot"><small>Total</small><b>'+soles(ht.total)+'</b></div><button class="btn" id="btn-pay" data-act="pay" '+(payValid()&&hold.bookingId?'':'disabled')+'>Ya pagué · enviar comprobante</button></div>';
 };
 function payValid(){ return /^[A-Za-z0-9-]{5,20}$/.test((F.opno||'').trim()) && !!F.capture; }
-AFTER.p_pay = () => { const b = document.getElementById('btn-pay'); if (b) b.disabled = !payValid(); };
+AFTER.p_pay = () => { const b = document.getElementById('btn-pay'); if (b) b.disabled = !payValid() || !hold.bookingId; };
 
 
 /* ---------- boleto */
@@ -1449,7 +1462,22 @@ ACT.toSeats = (id) => { hold = { tripId:id, bookingId:null, seats:[], until:0 };
 async function holdSeats(t, seat, liberar){
   try{
     const r = await POST('/trips/'+encodeURIComponent(t.id)+'/hold', { seat:Number(seat), liberar:Boolean(liberar) });
-    setSeatState(t, r.seatState); syncHold(t); return r;
+    if (r.seatState) {
+      setSeatState(t, r.seatState); syncHold(t);
+    } else if (r.accepted) {
+      const current = seatInfo(t), previous = current.holding;
+      const occupied = new Set(current.occupied.filter(n => liberar ? n !== seat : !previous.includes(n)));
+      const holding = liberar ? [] : [seat];
+      holding.forEach(n => occupied.add(n));
+      setSeatState(t, Object.assign({}, current, {
+        occupied:[...occupied], mine:current.mine.filter(n => !previous.includes(n)),
+        holding, holdUntil:liberar ? null : new Date(Date.now()+600000).toISOString(), holdId:null
+      }));
+      syncHold(t);
+    } else {
+      throw new Error('Make no devolvió el estado del asiento.');
+    }
+    return r;
   }catch(e){
     if (e.status === 409 && e.data && e.data.taken){
       toast(esc(e.message),'bad');
