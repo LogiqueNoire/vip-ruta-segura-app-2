@@ -1801,7 +1801,7 @@ document.addEventListener('touchend', e => { if (tx0 == null) return; const dx =
 /* =========================================================
    Relojes: cuenta regresiva, actualización automática y mapa en vivo
    ========================================================= */
-const POLL = { p_home:15000, p_trip:8000, p_seats:4000, p_trips:8000, p_ticket:5000, p_live:5000, d_home:6000, d_manifest:5000, d_live:5000, a_home:15000, a_review:15000, a_ops:8000 };
+const POLL = { p_home:15000, p_ticket:5000, p_live:5000, d_home:6000, d_manifest:5000, d_live:5000, a_home:15000, a_review:15000, a_ops:8000 };
 const isTyping = () => { const a = document.activeElement; return !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && app.contains(a)); };
 function refreshLiveDOM(){
   const t = F.liveTrip ? trip(F.liveTrip) : null; if (!t || ['p_live','d_live'].indexOf(cur().s) < 0) return;

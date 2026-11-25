@@ -148,6 +148,15 @@ function filasRespuesta(remoto, nombre) {
   throw new Error(`Make devolvió un formato de lectura inválido para ${nombre}.`);
 }
 
+function estadoAsientosDesdeFilas(filas, tripId) {
+  const tripText = texto(tripId);
+  const occupied = [...new Set(filas
+    .filter(fila => texto(fila.trip_id) === tripText && booleano(fila.active) && !booleano(fila.noshow))
+    .map(fila => numero(fila.seat))
+    .filter(seat => Number.isInteger(seat) && seat > 0))].sort((a, b) => a - b);
+  return { occupied, mine: [], holding: [], holdUntil: null, holdId: null };
+}
+
 async function leerDesdeMake(payload) {
   if (!READ_WEBHOOK_URL) throw new Error('Falta SHEETS_READ_WEBHOOK_URL para consultar datos en Make.');
   if (READ_WEBHOOK_URL === String(process.env.MAKE_WEBHOOK_URL || '').trim()) throw new Error('El webhook de lectura debe ser distinto al webhook de escritura.');
@@ -327,5 +336,5 @@ async function listarIncidentesPanel() {
 module.exports = {
   leerHoja, leerTabla, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
   listarReservasUsuario, listarResenasConductor, listarPagos, listarIncidentes,
-  listarPagosPanel, listarIncidentesPanel, normalizarFilas
+  listarPagosPanel, listarIncidentesPanel, normalizarFilas, estadoAsientosDesdeFilas
 };

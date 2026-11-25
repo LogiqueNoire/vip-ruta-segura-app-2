@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 process.env.SHEETS_READ_WEBHOOK_URL = 'https://make.example.test/read';
-const { normalizarFilas, leerTabla, listarViajes, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId } = require('../sheets-store');
+const { normalizarFilas, estadoAsientosDesdeFilas, leerTabla, listarViajes, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId } = require('../sheets-store');
 
 const tripColumns = [
   'id','driver_id','from_off','trip_date','dep_time','dep_at','price','seats',
@@ -37,6 +37,18 @@ test('maps a header row followed by positional trip data', () => {
   assert.equal(trips.length, 1);
   assert.equal(trips[0].driver_id, '2');
   assert.equal(trips[0].trip_date, '2026-11-20');
+});
+
+test('uses only active seats from the requested trip as occupied', () => {
+  const state = estadoAsientosDesdeFilas([
+    { trip_id:'1234', seat:'1', active:'TRUE', noshow:'FALSE' },
+    { trip_id:'1234', seat:'2', active:'FALSE', noshow:'TRUE' },
+    { trip_id:'1234', seat:'3', active:'TRUE', noshow:'TRUE' },
+    { trip_id:'5678', seat:'4', active:'TRUE', noshow:'FALSE' }
+  ], 1234);
+
+  assert.deepEqual(state.occupied, [1]);
+  assert.deepEqual(state.mine, []);
 });
 
 test('maps the users sheet format and its email column', () => {
