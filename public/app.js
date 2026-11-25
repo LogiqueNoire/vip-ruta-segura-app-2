@@ -1015,7 +1015,7 @@ SCREENS.d_home = () => {
       '<div class="kpis"><div><small>Pasajeros hoy</small><b>'+inf.today.pax+'</b></div><div><small>Ingreso hoy</small><b>'+soles(inf.today.income).replace('S/ ','S/')+'</b></div><div><small>Calificación</small><b>'+ratingTxt('me')+'</b></div></div></section>'+
     vBanner()+
     (inf.pendingPayments ? '<button class="card tight" data-act="tab" data-arg="d_manifest" style="text-align:left;border-color:var(--gold)"><div class="off"><span class="oi" style="background:var(--gold);color:var(--ink)">'+ic('money',22)+'</span><div><b>'+inf.pendingPayments+' pago'+(inf.pendingPayments>1?'s':'')+' por confirmar</b><small>Revisa que te llegó el Yape/Plin y confirma el asiento.</small></div>'+ic('chev')+'</div></button>' : '')+
-    (nt ? driverNextCard(nt) + salesPanel(nt, true) : '<section class="card"><h3>Aún no tienes viajes publicados</h3><p style="font-size:14px;color:var(--ink2)">Publica tu primera salida y aparecerá al instante en las búsquedas de los pasajeros.</p></section>')+
+    (nt ? driverNextCard(nt) + salesPanel(nt, true) + salesActivityPanel(nt) : '<section class="card"><h3>Aún no tienes viajes publicados</h3><p style="font-size:14px;color:var(--ink2)">Publica tu primera salida y aparecerá al instante en las búsquedas de los pasajeros.</p></section>')+
     '<button class="btn" data-act="newTrip" '+(ok?'':'disabled')+'>'+ic('plus')+'Publicar un viaje</button>'+
     (list.length ? '<div class="sec-h"><h3>Tus salidas</h3></div>'+list.map(tripRow).join('') : '')+
     '<div class="sec-h"><h3>Reseñas recientes</h3>'+((C().reviews)?'<button class="link" data-act="nav" data-arg="d_reviews">Ver todas</button>':'')+'</div>'+
@@ -1023,8 +1023,8 @@ SCREENS.d_home = () => {
   '</main>';
 };
 function tripRow(t){
-  const open = t.status === 'active';
-  return '<section class="card tight"><div class="kv"><b style="text-align:left">'+OFF[t.from].city+' → '+OFF[t.to].city+'</b><span class="bdg mute">'+dayLabel(t.date)+' · '+t.time+'</span></div><div class="kv"><span>'+(t.sold||0)+' de '+t.seats+' asientos vendidos'+(t.pending?' · '+t.pending+' por confirmar':'')+'</span><b>'+soles((t.sold||0)*t.price)+'</b></div>'+
+  const open = t.status === 'active', cancelled = t.status === 'cancelled';
+  return '<section class="card tight"><div class="kv"><b style="text-align:left">'+OFF[t.from].city+' → '+OFF[t.to].city+'</b><span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end"><span class="bdg mute">'+dayLabel(t.date)+' · '+t.time+'</span>'+(cancelled?'<span class="bdg bad">Cancelado</span>':'')+'</span></div><div class="kv"><span>'+(t.sold||0)+' de '+t.seats+' asientos vendidos'+(t.pending?' · '+t.pending+' por confirmar':'')+'</span><b>'+soles((t.sold||0)*t.price)+'</b></div>'+
     '<div class="actions2"><button class="btn xs line" data-act="manifestOf" data-arg="'+esc(t.id)+'">'+ic('users',15)+'Pasajeros</button>'+(open?'<button class="btn xs line" data-act="editTrip" data-arg="'+esc(t.id)+'">'+ic('edit',15)+'Editar</button>':'<span></span>')+'</div>'+(open?'<button class="link" data-act="cancelTrip" data-arg="'+esc(t.id)+'" style="align-self:flex-start;color:var(--bad)">Cancelar este viaje</button>':'')+'</section>';
 }
 function driverNextCard(t){
@@ -1045,6 +1045,7 @@ function salesStats(t){
 function waitInfo(t){ const el = (nowSim() - depDate(t))/60000; return { el }; }
 function departStatus(t){
   const st = salesStats(t); const sold = st.sold, full = sold + st.pend >= t.seats; const w = waitInfo(t);
+  if (t.status === 'cancelled') return { cls:'bad', t:'Viaje cancelado', d:'Esta salida ya no está disponible.' };
   if (t.status === 'finished') return { cls:'ok', t:'Viaje terminado', d:'Llegaste a '+OFF[t.to].name+'.' };
   if (t.status === 'started') return { cls:'ok', t:'Viaje en curso', d:'Tus pasajeros ven la unidad en el mapa.' };
   if (sold > 0 && st.boarded === sold && st.pend === 0 && (full || w.el >= 0)) return { cls:'ok', go:true, t:'Todos a bordo: puedes partir', d:full ? 'Vehículo lleno y todos subieron.' : 'Ya subieron todos los que pagaron.' };
@@ -1054,17 +1055,20 @@ function departStatus(t){
 }
 function salesPanel(t, showConfirmSeats){
   const st = salesStats(t); const ds = departStatus(t); const m = st.m;
-  const ev = m ? m.feed.slice(0,4) : [];
   const dots = Array.from({length:t.seats}, (_,i) => { const n = i+1; const s = m ? m.seats.find(x => x.seat === n && x.state !== 'released') : null; const c = !s ? 'free' : s.state === 'on' ? 'on' : s.state === 'pending' ? 'pend' : 'sold'; return '<i class="sd '+c+'" title="Asiento '+n+'">'+n+'</i>'; }).join('');
   return '<section class="card sales" id="salesbox" data-tid="'+esc(t.id)+'">'+
-    '<div class="sales-h"><span class="live-dot"><span class="pulse"></span>Venta de pasajes en vivo</span><small class="muted">'+dayLabel(t.date)+' '+t.time+'</small></div>'+
+    '<div class="sales-h"><span class="live-dot"><span class="pulse"></span>'+(t.status === 'started'?'Seguimiento del viaje':'Venta de pasajes en vivo')+'</span><small class="muted">'+dayLabel(t.date)+' '+t.time+'</small></div>'+
     '<div class="sold"><b>'+st.sold+'</b><span>de '+t.seats+' pasajes<br>vendidos</span><em>'+soles(st.sold*t.price)+'</em></div>'+
-    '<div class="seatdots">'+dots+'</div>'+
+    '<div class="seat-summary"><small>Asientos</small><div class="seatdots" aria-label="Distribución de asientos">'+dots+'</div><div class="seat-legend"><span><i class="seat-key free"></i>Libre</span><span><i class="seat-key sold"></i>Vendido</span><span><i class="seat-key pend"></i>Por confirmar</span><span><i class="seat-key on"></i>Abordó</span></div></div>'+
     '<div class="depart '+ds.cls+'">'+ic(ds.go ? 'check' : 'clock',20)+'<div><b>'+ds.t+'</b><small>'+ds.d+'</small></div></div>'+
     (ds.go && t.status === 'active' ? '<button class="btn ok" data-act="driveOf" data-arg="'+esc(t.id)+'">'+ic('play',18)+'Iniciar viaje ahora</button>' : '')+
     (showConfirmSeats && st.pend ? '<button class="btn sm line" data-act="manifestOf" data-arg="'+esc(t.id)+'">Ir a confirmar asientos</button>' : '')+
-    (ev.length ? '<ul class="feed">'+ev.map(e => '<li class="'+e.k+'"><span class="fi">'+ic(e.k === 'compra' ? 'ticket' : 'flag',15)+'</span><span class="ft"><b>'+(e.k === 'compra' ? (e.confirmed ? 'Vendido asiento '+e.seat : 'Por confirmar asiento '+e.seat) : 'Asiento '+e.seat+' liberado')+'</b>'+esc(shortName(e.name))+(e.k === 'compra' ? ' · '+(e.pay === 'plin' ? 'Plin' : 'Yape') : ' · no llegó en 20 min')+'</span><small>'+agoTxt(e.at)+'</small></li>').join('')+'</ul>' : '<p class="muted" style="font-size:13.5px">Todavía no hay compras. Aparecerán aquí en cuanto un pasajero reserve.</p>')+
   '</section>';
+}
+function salesActivityPanel(t){
+  const m = DB_.man[t.id], events = m ? m.feed.slice(0,4) : [];
+  if (!events.length) return '';
+  return '<section class="card activity"><h3>Actividad reciente</h3><ul class="feed">'+events.map(e => '<li class="'+e.k+'"><span class="fi">'+ic(e.k === 'compra' ? 'ticket' : 'flag',15)+'</span><span class="ft"><b>'+(e.k === 'compra' ? (e.confirmed ? 'Vendido asiento '+e.seat : 'Por confirmar asiento '+e.seat) : 'Asiento '+e.seat+' liberado')+'</b>'+esc(shortName(e.name))+(e.k === 'compra' ? ' · '+(e.pay === 'plin' ? 'Plin' : 'Yape') : ' · no llegó en 20 min')+'</span><small>'+agoTxt(e.at)+'</small></li>').join('')+'</ul></section>';
 }
 
 /* ---------- publicar / editar viaje */
@@ -1102,14 +1106,17 @@ SCREENS.d_manifest = (p) => {
   const t = trip(tid); const m = DB_.man[tid]; const rows = m ? m.seats : [];
   const on = rows.filter(s => s.state === 'on').length, no = rows.filter(s => s.state === 'released').length, pend = rows.filter(s => s.state === 'sold' || s.state === 'pending').length;
   const finished = t.status === 'finished';
+  const cancelled = t.status === 'cancelled';
   return top('Pasajeros', { back:false, sub: OFF[t.from].city+' → '+OFF[t.to].city+' · '+t.time })+
-  '<main class="scr">'+
+  '<main class="scr manifest">'+
     (trips.length > 1 ? '<div class="tripchips">'+trips.map(x => chip(dayLabel(x.date)+' '+x.time+' · '+OFF[x.from].city.slice(0,3), x.id===tid, 'mtrip', x.id)).join('')+'</div>' : '')+
-    (!finished ? salesPanel(t) : '')+
-    (t.status === 'active' || t.status === 'started' ? '<button class="btn dark" data-act="scan" data-arg="'+esc(t.id)+'">'+ic('camera',18)+'Escanear QR del pasajero</button>' : '')+
-    '<div class="stats"><div class="stat"><small>Abordaron</small><b>'+on+'</b></div><div class="stat"><small>Por subir</small><b>'+pend+'</b></div><div class="stat"><small>No vino</small><b>'+no+'</b></div></div>'+
-    (finished ? '<div class="note ok">'+ic('check',18)+'<span>Viaje terminado. Califica a tus pasajeros: ayuda a otros conductores.</span></div>' : t.status === 'active' ? '<div class="waitbox" id="waitbox">'+waitHTML(t)+'</div>' : '')+
-    '<section class="card">'+(rows.length ? rows.map(s => paxRow(t, s, finished, rows)).join('') : '<p class="muted">Aún nadie reservó en esta salida.</p>')+'</section>'+
+    (!finished ? '<div class="manifest-overview">'+(!cancelled ? salesPanel(t) + salesActivityPanel(t) : '<div class="note bad">'+ic('flag',18)+'<span>Este viaje fue cancelado y ya no admite reservas ni abordajes.</span></div>')+'</div>' : '')+
+    '<aside class="manifest-actions">'+
+      (t.status === 'active' || t.status === 'started' ? '<button class="btn dark" data-act="scan" data-arg="'+esc(t.id)+'">'+ic('camera',18)+'Escanear QR del pasajero</button>' : '')+
+      '<div class="stats"><div class="stat"><small>Abordaron</small><b>'+on+'</b></div><div class="stat"><small>Por subir</small><b>'+pend+'</b></div><div class="stat"><small>No vino</small><b>'+no+'</b></div></div>'+
+      (finished ? '<div class="note ok">'+ic('check',18)+'<span>Viaje terminado. Califica a tus pasajeros: ayuda a otros conductores.</span></div>' : t.status === 'active' ? '<div class="waitbox" id="waitbox">'+waitHTML(t)+'</div>' : '')+
+    '</aside>'+
+    '<section class="card manifest-people"><div class="manifest-section-head"><h3>Pasajeros</h3><span class="bdg mute">'+rows.length+' registro'+(rows.length===1?'':'s')+'</span></div>'+(rows.length ? rows.map(s => paxRow(t, s, finished, rows)).join('') : '<p class="muted">Aún nadie reservó en esta salida.</p>')+'</section>'+
   '</main>';
 };
 function waitHTML(t){

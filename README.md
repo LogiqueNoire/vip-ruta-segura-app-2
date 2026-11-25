@@ -95,7 +95,7 @@ Para comprobarlo, abre `/health`: `"mail": true` indica que las variables están
 | 7 | Búsqueda | Solo viajes reales; asientos libres y perfil del chófer salen de la BD |
 | 8 | Pago Yape/Plin manual | El pasajero ve el número del chófer, paga, sube captura y n.º de operación. El chófer (o el admin) confirma o rechaza. Visa se quitó |
 | 9 | QR y abordaje | Boleto con QR; el chófer lo escanea con la cámara (o escribe el código) |
-| 10 | Espera y «No presentado» | Una tarea cada 30 s libera: reservas sin pagar (10 min) y pasajeros que no abordaron 20 min después de la salida |
+| 10 | Espera, «No presentado» y cancelación automática | Cada 30 s libera reservas sin pagar vencidas, marca pasajeros que no abordaron tras 20 min y cancela viajes activos al llegar su hora si no tienen reservas por confirmar o confirmadas. Los holds no cuentan como compra y se liberan al cancelar |
 | 11 | Ventas en vivo | Datos reales; las pantallas se actualizan solas cada pocos segundos |
 | 12 | Calificaciones | Reales, con promedio calculado; 3 estrellas o menos generan un incidente para el admin |
 | 13 | Correos de aviso | Pago por confirmar (al chófer), reserva confirmada o pago rechazado (al pasajero), viaje editado o cancelado, cuenta aprobada o rechazada y SOS (al admin) |

@@ -322,6 +322,25 @@ async function runJobs() {
       const ids = [...new Set(rel.rows.map(r => r.booking_id))];
       await c.query(`update bookings b set status = 'no_presentado' where b.id = any($1) and not exists (select 1 from booking_seats x where x.booking_id = b.id and x.active)`, [ids]);
     }
+
+    const emptyTrips = await c.query(`select t.id from trips t
+      where t.status = 'active' and t.dep_at <= now()
+        and not exists (select 1 from bookings b where b.trip_id = t.id and b.status in ('por_confirmar','confirmado'))
+      order by t.dep_at
+      for update of t skip locked`);
+    if (emptyTrips.rowCount) {
+      const tripIds = emptyTrips.rows.map(r => r.id);
+      await c.query(`update trips set status = 'cancelled' where id = any($1) and status = 'active'`, [tripIds]);
+      const holds = await c.query(`update bookings set status = 'cancelado'
+        where trip_id = any($1) and status = 'hold' returning id`, [tripIds]);
+      if (holds.rowCount) {
+        const bookingIds = holds.rows.map(r => r.id);
+        await c.query(`update payments set status = 'rechazado', note = 'Viaje cancelado por falta de reservas', decided_at = now()
+          where booking_id = any($1) and status = 'pendiente'`, [bookingIds]);
+      }
+      await c.query(`update booking_seats set active = false, released_at = now()
+        where trip_id = any($1) and active`, [tripIds]);
+    }
   });
 }
 let lastJob = 0;
@@ -936,7 +955,7 @@ api.get('/driver/trips', needUser, needDriver, A(async (req, res) => {
       (select count(*)::int from booking_seats bs join bookings b on b.id = bs.booking_id where bs.trip_id = t.id and bs.active and b.status = 'confirmado') as sold,
       (select count(*)::int from booking_seats bs join bookings b on b.id = bs.booking_id where bs.trip_id = t.id and bs.active and b.status = 'por_confirmar') as pending,
       (select count(*)::int from booking_seats bs where bs.trip_id = t.id and bs.active and bs.boarded_at is not null) as boarded
-    from trips t where t.driver_id = $1 and t.status <> 'cancelled' and t.dep_at > now() - interval '2 days' order by t.dep_at`, [req.user.id]);
+    from trips t where t.driver_id = $1 and t.dep_at > now() - interval '2 days' order by t.dep_at`, [req.user.id]);
   const today = new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10);
   const trips = r.rows.map(x => Object.assign(tripDto(x), { sold: x.sold, pending: x.pending, boarded: x.boarded }));
   const day = trips.filter(t => t.date === today);
