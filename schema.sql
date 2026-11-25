@@ -72,6 +72,7 @@ create index if not exists email_codes_email_idx on email_codes (lower(email), c
 
 create table if not exists trips (
   id          bigserial primary key,
+  make_id     text,
   driver_id   bigint not null references users(id),
   from_off    text not null check (from_off in ('tru','chi')),
   trip_date   date not null,
@@ -88,6 +89,8 @@ create table if not exists trips (
   finished_at timestamptz,
   created_at  timestamptz not null default now()
 );
+alter table trips add column if not exists make_id text;
+create unique index if not exists trips_make_id_uq on trips (make_id);
 create index if not exists trips_search_idx on trips (trip_date, from_off, status);
 create index if not exists trips_driver_idx on trips (driver_id, dep_at);
 

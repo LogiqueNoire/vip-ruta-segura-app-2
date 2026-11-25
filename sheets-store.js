@@ -79,7 +79,9 @@ const COLUMNAS = Object.freeze({
   ],
   pagos: [
     ['id','booking_id','method','amount','operation_no','status','note','decided_by','decided_at','created_at'],
-    ['id','request_id','booking_id','method','amount','operation_no','status','note','decided_by','decided_at','created_at']
+    ['id','request_id','booking_id','method','amount','operation_no','status','note','decided_by','decided_at','created_at'],
+    ['id','booking_id','method','amount','operation_no','capture_file_id','status','note','decided_by','decided_at','created_at'],
+    ['id','request_id','booking_id','method','amount','operation_no','capture_file_id','status','note','decided_by','decided_at','created_at']
   ],
   resenas: [
     ['id','booking_id','trip_id','driver_id','passenger_id','stars','tags','flags','comment','created_at'],
@@ -198,38 +200,6 @@ async function leerAsientosViaje(tripId, userId) {
     .filter(fila => texto(fila.trip_id) === texto(tripId));
 }
 
-async function reservarAsientoMake(tripId, userId, seat, liberar = false) {
-  if (!READ_WEBHOOK_URL) throw new Error('Falta SHEETS_READ_WEBHOOK_URL para reservar asientos en Make.');
-  if (READ_WEBHOOK_URL === String(process.env.MAKE_WEBHOOK_URL || '').trim()) {
-    throw new Error('El webhook de lectura debe ser distinto al webhook de escritura.');
-  }
-  if (!Number.isInteger(seat) || seat < 1) throw new Error('Asiento no válido para reservar en Make.');
-  const response = await fetch(READ_WEBHOOK_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      operacion: 'reservar_asientos',
-      trip_id: String(tripId),
-      user_id: String(userId),
-      seat,
-      liberar
-    })
-  });
-  const raw = await response.text();
-  if (response.ok && raw.trim() === 'Accepted') return { ok: true, accepted: true };
-  let result;
-  try { result = JSON.parse(raw); } catch (_) {
-    throw new Error('Make reserva devolvió una respuesta no JSON.');
-  }
-  if (!response.ok && response.status !== 409) {
-    throw new Error(`Make reserva HTTP ${response.status}.`);
-  }
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    throw new Error('Make reserva devolvió una respuesta inválida.');
-  }
-  return result;
-}
-
 async function buscarUsuarioPorId(id) {
   if (!['string', 'number'].includes(typeof id) || !texto(id)) return null;
   const idText = texto(id);
@@ -288,44 +258,6 @@ async function listarViajes(date, from) {
       x.date === texto(date) && x.from === texto(from) && ['active', 'started'].includes(texto(x.status || 'active')));
 }
 
-async function listarReservasUsuario(userId, onlyId) {
-  const reservas = await leerTabla('reservas', { user_id: userId });
-  const filtradas = onlyId ? reservas.filter(x => texto(x.id) === texto(onlyId)) : reservas;
-  if (!filtradas.length) return { encontrados: false, drivers: {}, bookings: [] };
-  const [viajes, asientos, pagos, usuarios] = await Promise.all([
-    leerTabla('viajes'), leerTabla('asientos_reserva'), leerTabla('pagos'), leerTabla('usuarios')
-  ]);
-  const porViaje = new Map(viajes.map(x => [texto(x.id || x.request_id), x]));
-  const porUsuario = new Map(usuarios.map(x => [texto(x.id || x.request_id), x]));
-  const porPago = new Map(pagos.map(x => [texto(x.booking_id), x]));
-  const drivers = {};
-  const bookings = filtradas.map(b => {
-    const viaje = porViaje.get(texto(b.trip_id)) || {};
-    const conductor = porUsuario.get(texto(viaje.driver_id)) || {};
-    if (viaje.driver_id) drivers[texto(viaje.driver_id)] = conductor;
-    const seats = asientos.filter(x => texto(x.booking_id) === texto(b.id) && (texto(x.active) === '' || booleano(x.active) || booleano(x.noshow)))
-      .map(x => numero(x.seat)).filter(Number.isFinite).sort((a, z) => a - z);
-    const pago = porPago.get(texto(b.id)) || {};
-    const reserva = {
-      id: numero(b.id) ?? texto(b.id), code: texto(b.code), trip_id: numero(b.trip_id) ?? texto(b.trip_id),
-      status: texto(b.status), hold_until: b.hold_until || null, subtotal: numero(b.subtotal) || 0,
-      promo_name: b.promo_name || null, promo_pct: numero(b.promo_pct) || 0, total: numero(b.total) || 0,
-      rated: booleano(b.rated), created_at: b.created_at || null
-    };
-    const trip = {
-      id: numero(viaje.id || viaje.request_id) ?? texto(viaje.id || viaje.request_id),
-      date: texto(viaje.date || viaje.trip_date), time: texto(viaje.time || viaje.dep_time),
-      from: texto(viaje.from || viaje.from_off), to: texto(viaje.from || viaje.from_off) === 'tru' ? 'chi' : 'tru',
-      price: numero(viaje.price) || 0, seats: numero(viaje.seats) || 0, vtype: texto(viaje.vtype),
-      status: texto(viaje.status || 'active'), dep_at: viaje.dep_at || null,
-      driver_id: numero(viaje.driver_id) ?? texto(viaje.driver_id), veh_model: texto(viaje.veh_model || viaje.model),
-      veh_plate: texto(viaje.veh_plate || viaje.plate), veh_color: texto(viaje.veh_color || viaje.color), taken: 0
-    };
-    return { reserva, viaje: trip, conductor, pago, seats, asientos: asientos.filter(x => texto(x.booking_id) === texto(b.id)) };
-  });
-  return { encontrados: true, drivers, bookings };
-}
-
 async function listarResenasConductor(driverId) {
   const [resenas, usuarios] = await Promise.all([leerTabla('resenas', { driver_id: driverId }), leerTabla('usuarios')]);
   const nombres = new Map(usuarios.map(x => [texto(x.id || x.request_id), x.name]));
@@ -343,23 +275,6 @@ async function listarIncidentes(filtros = {}) {
   return leerTabla('incidentes', filtros);
 }
 
-async function listarPagosPanel(estado = '') {
-  const pagos = await leerTabla('pagos', estado ? { status: estado } : {});
-  const [reservas, viajes, usuarios] = await Promise.all([
-    leerTabla('reservas'), leerTabla('viajes'), leerTabla('usuarios')
-  ]);
-  const porReserva = new Map(reservas.map(x => [texto(x.id), x]));
-  const porViaje = new Map(viajes.map(x => [texto(x.id || x.request_id), x]));
-  const porUsuario = new Map(usuarios.map(x => [texto(x.id || x.request_id), x]));
-  return pagos.map(p => {
-    const b = porReserva.get(texto(p.booking_id)) || {};
-    const t = porViaje.get(texto(b.trip_id)) || {};
-    const pasajero = porUsuario.get(texto(b.user_id)) || {};
-    const conductor = porUsuario.get(texto(t.driver_id)) || {};
-    return { pago: p, reserva: b, viaje: t, pasajero, conductor };
-  });
-}
-
 async function listarIncidentesPanel() {
   const incidentes = await leerTabla('incidentes');
   const [viajes, usuarios] = await Promise.all([leerTabla('viajes'), leerTabla('usuarios')]);
@@ -374,7 +289,6 @@ async function listarIncidentesPanel() {
 }
 
 module.exports = {
-  leerHoja, leerTabla, leerAsientosViaje, reservarAsientoMake, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
-  listarReservasUsuario, listarResenasConductor, listarPagos, listarIncidentes,
-  listarPagosPanel, listarIncidentesPanel, normalizarFilas, estadoAsientosDesdeFilas
+  leerHoja, leerTabla, leerAsientosViaje, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
+  listarResenasConductor, listarPagos, listarIncidentes, listarIncidentesPanel, normalizarFilas, estadoAsientosDesdeFilas
 };

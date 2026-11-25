@@ -769,11 +769,11 @@ LOAD.p_pay = async () => {
   const t = trip(hold.tripId); if (!t) return null;
   const selected = hold.seats.slice(), until = hold.until, bookingId = hold.bookingId;
   const r = await loadTripFull(t.id);
-  if (!bookingId && selected.length) {
+  if (selected.length && !seatInfo(r.trip).holding.length) {
     const state = seatInfo(r.trip), occupied = new Set(state.occupied);
     selected.forEach(seat => occupied.add(seat));
     setSeatState(r.trip, Object.assign({}, state, {
-      occupied:[...occupied], holding:selected, holdUntil:until ? new Date(until).toISOString() : null, holdId:null
+      occupied:[...occupied], holding:selected, holdUntil:until ? new Date(until).toISOString() : null, holdId:bookingId
     }));
   }
   syncHold(r.trip); return r;
@@ -1464,18 +1464,8 @@ async function holdSeats(t, seat, liberar){
     const r = await POST('/trips/'+encodeURIComponent(t.id)+'/hold', { seat:Number(seat), liberar:Boolean(liberar) });
     if (r.seatState) {
       setSeatState(t, r.seatState); syncHold(t);
-    } else if (r.accepted) {
-      const current = seatInfo(t), previous = current.holding;
-      const occupied = new Set(current.occupied.filter(n => liberar ? n !== seat : !previous.includes(n)));
-      const holding = liberar ? [] : [seat];
-      holding.forEach(n => occupied.add(n));
-      setSeatState(t, Object.assign({}, current, {
-        occupied:[...occupied], mine:current.mine.filter(n => !previous.includes(n)),
-        holding, holdUntil:liberar ? null : new Date(Date.now()+600000).toISOString(), holdId:null
-      }));
-      syncHold(t);
     } else {
-      throw new Error('Make no devolvió el estado del asiento.');
+      throw new Error('El servidor no devolvió el estado actualizado del asiento.');
     }
     return r;
   }catch(e){
