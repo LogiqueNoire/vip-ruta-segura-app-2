@@ -183,18 +183,37 @@ async function meDto(uid, userRecord) {
   const record = userRecord || (SHEETS_READS ? await buscarUsuarioPorId(uid) : await buscarUsuarioNeonPorId(uid));
   const u = usuarioDesdeHoja(record); if (!u) return null;
   const neonId = Number(u.neonLinked ? u.id : uid);
+  let nu = null, ndp = null;
   if (Number.isFinite(neonId) && neonId > 0) {
-    const nu = (await q('select selfie_file_id, dni_file_id, pax_status, pax_note from users where id = $1', [neonId])).rows[0];
+    nu = (await q('select selfie_file_id, dni_file_id, pax_status, pax_note, emerg_name, emerg_phone from users where id = $1', [neonId])).rows[0];
     if (nu) {
       if (nu.selfie_file_id) u.selfie_file_id = nu.selfie_file_id;
       if (nu.dni_file_id) u.dni_file_id = nu.dni_file_id;
+      if (nu.pax_status) u.pax_status = nu.pax_status;
+      if (nu.pax_note) u.pax_note = nu.pax_note;
+      if (nu.emerg_name) u.emerg_name = nu.emerg_name;
+      if (nu.emerg_phone) u.emerg_phone = nu.emerg_phone;
     }
-    if (u.drv_status) {
-      const ndp = (await q('select lic_file_id, veh_ext_file_id, veh_int_file_id, veh_bag_file_id, soat_file_id, ant_file_id from driver_profiles where user_id = $1', [neonId])).rows[0];
+    // Leer driver_profile si es conductor (ya sea por Make o Neon)
+    if (u.drv_status || (!SHEETS_READS)) {
+      ndp = (await q('select * from driver_profiles where user_id = $1', [neonId])).rows[0];
       if (ndp) {
         for (const k of ['lic_file_id', 'veh_ext_file_id', 'veh_int_file_id', 'veh_bag_file_id', 'soat_file_id', 'ant_file_id']) {
           if (ndp[k]) u[k] = ndp[k];
         }
+        // Si el drv_status viene de Neon
+        if (!u.drv_status && ndp.status) u.drv_status = ndp.status;
+        if (ndp.yape_phone && !u.yape_phone) u.yape_phone = ndp.yape_phone;
+        if (ndp.plin_phone && !u.plin_phone) u.plin_phone = ndp.plin_phone;
+        if (ndp.lic_num && !u.lic_num) u.lic_num = ndp.lic_num;
+        if (ndp.lic_cat && !u.lic_cat) u.lic_cat = ndp.lic_cat;
+        if (ndp.vtype && !u.vtype) u.vtype = ndp.vtype;
+        if (ndp.model && !u.model) u.model = ndp.model;
+        if (ndp.plate && !u.plate) u.plate = ndp.plate;
+        if (ndp.color && !u.color) u.color = ndp.color;
+        if (ndp.soat_until && !u.soat_until) u.soat_until = ndp.soat_until;
+        if (ndp.rt_ok !== undefined && !u.rt_ok) u.rt_ok = ndp.rt_ok;
+        if (!u.drv_note && ndp.review_note) u.drv_note = ndp.review_note;
       }
     }
   }

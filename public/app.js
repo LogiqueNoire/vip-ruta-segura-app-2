@@ -1247,7 +1247,15 @@ function render(keepScroll){
     if (!c.loading){ c.loading = true; runLoad(c); }
     app.innerHTML = loadingHTML(c.s); return;
   }
-  app.innerHTML = c.err && LOAD[c.s] && !c.ok ? errorHTML(c) : SCREENS[c.s](c.p || {}) + (isTab(c.s) ? navBar(c.s) : '');
+  let html;
+  try {
+    html = c.err && LOAD[c.s] && !c.ok ? errorHTML(c) : SCREENS[c.s](c.p || {}) + (isTab(c.s) ? navBar(c.s) : '');
+  } catch(renderErr) {
+    console.error('[render]', c.s, renderErr);
+    if (F.vopen) { F.vopen = null; try { html = SCREENS[c.s](c.p || {}) + (isTab(c.s) ? navBar(c.s) : ''); } catch(e2) { html = errorHTML({ err: renderErr.message }); } }
+    else { html = errorHTML({ err: renderErr.message }); }
+  }
+  app.innerHTML = html;
   const sc = app.querySelector('.scr'); if (sc) sc.scrollTop = st;
   if (AFTER[c.s]) AFTER[c.s](c.p || {});
   applyTexts(app); renderEditUI();
