@@ -124,8 +124,27 @@ small{font-size:12.5px}
 .chips{display:flex;gap:8px;flex-wrap:wrap}
 .chip{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);font-weight:700;font-size:13.5px;color:var(--ink2);white-space:nowrap}
 .chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
-.chip.datepick{position:relative;overflow:hidden}
-.chip.datepick input{border:0;background:transparent;font-weight:700;font-size:13px;width:118px;color:inherit;padding:0}
+.quick-date:disabled{opacity:.42;cursor:not-allowed}
+.date-picker-field{position:relative;display:flex;flex-direction:column;gap:8px}
+.chip.datepick{background:var(--ink);border-color:var(--ink);color:#fff}
+.date-calendar{width:min(100%,352px);margin-top:4px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 10px 24px rgba(22,24,29,.12)}
+.cal-head{display:grid;grid-template-columns:36px 1fr 36px;align-items:center;margin-bottom:10px;text-align:center}
+.cal-head>b{font-size:14px;font-weight:700}
+.cal-nav{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:8px;background:transparent;font-size:24px;line-height:1;color:var(--ink2)}
+.cal-nav:not(:disabled):hover{background:#F1F2F4;color:var(--ink)}
+.cal-nav:disabled{opacity:.35;cursor:not-allowed}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cal-weekday,.cal-day{height:36px;display:grid;place-items:center}
+.cal-weekday{font-size:12px;font-weight:600;color:var(--muted)}
+.cal-day{position:relative;width:100%;border:0;border-radius:8px;background:transparent;font-size:13px;font-weight:500;color:var(--ink)}
+.cal-day:not(:disabled):hover{background:var(--gold-soft)}
+.cal-day:disabled{color:#A8ADB6;cursor:not-allowed}
+.cal-day.outside{height:36px}
+.cal-day.selected{background:var(--ink);color:#fff;font-weight:700}
+.cal-day.selected:hover{background:#343841}
+.cal-day i{position:absolute;bottom:4px;width:4px;height:4px;border-radius:50%;background:var(--gold-d)}
+.cal-day.selected i{background:var(--gold)}
+.cal-summary{margin:10px 2px 0;padding-top:9px;border-top:1px solid var(--line);font-size:12px;color:var(--ink2)}
 .fld{display:flex;flex-direction:column;gap:6px}
 .fld>label,.lbl{font-weight:700;font-size:13px;color:var(--ink2)}
 .fld input,.fld select,.fld textarea{width:100%;min-height:52px;border:1.5px solid var(--line);border-radius:13px;padding:0 14px;font-size:16px;font-weight:500;background:var(--surface);color:var(--ink)}
@@ -585,7 +604,7 @@ small{font-size:12.5px}
 <script type="application/json" id="vip-texts">{}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 <script>
 if ('serviceWorker' in navigator){ navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }).catch(function(){}); if (window.caches) caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); }).catch(function(){}); }
 </script>

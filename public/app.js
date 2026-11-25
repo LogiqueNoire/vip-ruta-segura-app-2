@@ -23,6 +23,9 @@ function ymd(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDat
 function addDays(n){ const d = new Date(); d.setDate(d.getDate()+n); return ymd(d); }
 function parseYmd(s){ const p = s.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]); }
 function daysFromToday(s){ return Math.round((parseYmd(s) - parseYmd(ymd(new Date())))/864e5); }
+function monthOf(s){ return String(s).slice(0,7); }
+function shiftMonth(s, delta){ const p = s.split('-').map(Number), d = new Date(p[0],p[1]-1+delta,1); return d.getFullYear()+'-'+pad(d.getMonth()+1); }
+function monthLabel(s){ const p = s.split('-').map(Number), label = new Date(p[0],p[1]-1,1).toLocaleDateString('es-PE',{month:'long',year:'numeric'}); return label.charAt(0).toUpperCase()+label.slice(1); }
 function addMin(t,m){ const p = t.split(':').map(Number); let tot = p[0]*60+p[1]+m; tot = ((tot%1440)+1440)%1440; return pad(Math.floor(tot/60))+':'+pad(tot%60); }
 function depDate(t){ if (t.dep) return new Date(t.dep); const d = parseYmd(t.date); const p = t.time.split(':').map(Number); d.setHours(p[0],p[1],0,0); return d; }
 function nowSim(){ return new Date(); }
@@ -152,7 +155,7 @@ let F = {};               // valores temporales de formularios
 let stack = [];           // historial de pantallas
 let hold = { tripId:null, bookingId:null, seats:[], until:0 };
 let GEO = null;           // ubicación real del celular, si el navegador la entrega
-const DB_ = { trips:{}, drivers:{}, seats:{}, pay:{}, revs:{}, bookings:[], myTrips:[], myInfo:{ today:{pax:0,income:0}, pendingPayments:0 }, man:{}, live:{}, adm:{} };
+const DB_ = { trips:{}, drivers:{}, seats:{}, pay:{}, revs:{}, bookings:[], myTrips:[], myInfo:{ today:{pax:0,income:0}, pendingPayments:0 }, man:{}, live:{}, adm:{}, availability:{} };
 
 const P = () => ME;
 const C = () => (ME && ME.driver) || null;
@@ -665,21 +668,66 @@ function nextBooking(){
 const statusBdg = b => b.noShow ? '<span class="bdg bad">Asiento perdido</span>' : b.status === 'rechazado' ? '<span class="bdg bad">Pago rechazado</span>' : b.status === 'cancelado' ? '<span class="bdg bad">Cancelado</span>' : b.status === 'por_confirmar' ? '<span class="bdg gold">Por confirmar</span>' : isFinished(b) ? '<span class="bdg mute">Finalizado</span>' : '<span class="bdg ok">Confirmado</span>';
 
 /* ---------- inicio pasajero */
-LOAD.p_home = async () => { await refreshMe(); return loadBookings(); };
+function tripDateKey(from, type, month){ return from+'|'+type+'|'+month; }
+function tripDates(from, type, month){ return DB_.availability[tripDateKey(from,type,month)] || []; }
+function dateSchedules(date, from=S.search.from, type=S.search.type){
+  return tripDates(from,type,monthOf(date)).find(item => item.date === date) || null;
+}
+async function loadTripDates(month, force){
+  const key = tripDateKey(S.search.from,S.search.type,month);
+  if (!force && Object.prototype.hasOwnProperty.call(DB_.availability,key)) return DB_.availability[key];
+  const r = await GET('/trips/dates?from='+encodeURIComponent(S.search.from)+'&month='+encodeURIComponent(month)+'&type='+encodeURIComponent(S.search.type));
+  DB_.availability[key] = r.dates || [];
+  return DB_.availability[key];
+}
+async function refreshQuickAvailability(){
+  const months = [...new Set([monthOf(S.search.date),monthOf(addDays(2))])];
+  await Promise.all(months.map(month => loadTripDates(month,true)));
+}
+function calendarHtml(month){
+  const parts = month.split('-').map(Number), year = parts[0], monthIndex = parts[1]-1;
+  const first = new Date(year,monthIndex,1), days = new Date(year,monthIndex+1,0).getDate();
+  const available = new Map(tripDates(S.search.from,S.search.type,month).map(item => [item.date,item]));
+  const cells = [];
+  for (let i=0;i<first.getDay();i++) cells.push('<span class="cal-day outside" aria-hidden="true"></span>');
+  for (let day=1;day<=days;day++){
+    const date = year+'-'+pad(monthIndex+1)+'-'+pad(day), info = available.get(date), selected = !!info && S.search.date===date;
+    const label = parseYmd(date).toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long'});
+    cells.push('<button type="button" class="cal-day'+(selected?' selected':'')+(info?' has-trips':'')+'" data-act="date" data-arg="'+date+'" '+(info?'':'disabled')+' aria-pressed="'+selected+'" aria-label="'+esc(label+(info?', '+info.schedules+' horarios disponibles':', sin horarios disponibles'))+'">'+day+(info?'<i aria-hidden="true"></i>':'')+'</button>');
+  }
+  while (cells.length%7) cells.push('<span class="cal-day outside" aria-hidden="true"></span>');
+  const prev = shiftMonth(month,-1), current = monthOf(addDays(0)), currentInfo = monthOf(S.search.date)===month ? dateSchedules(S.search.date) : null;
+  const summary = currentInfo
+    ? '<p class="cal-summary">'+currentInfo.schedules+' horario'+(currentInfo.schedules===1?'':'s')+' disponible'+(currentInfo.schedules===1?'':'s')+' · '+currentInfo.times.join(', ')+'</p>'
+    : '<p class="cal-summary">Solo puedes elegir días con horarios disponibles.</p>';
+  return '<div class="date-calendar" id="trip-calendar" role="dialog" aria-label="Elige una fecha con viajes">'+
+    '<div class="cal-head"><button type="button" class="cal-nav" data-act="calendarMonth" data-arg="-1" '+(prev<current?'disabled':'')+' aria-label="Mes anterior">‹</button><b aria-live="polite">'+monthLabel(month)+'</b><button type="button" class="cal-nav" data-act="calendarMonth" data-arg="1" aria-label="Mes siguiente">›</button></div>'+
+    '<div class="cal-grid" aria-label="'+esc(monthLabel(month))+'"><span class="cal-weekday">Do</span><span class="cal-weekday">Lu</span><span class="cal-weekday">Ma</span><span class="cal-weekday">Mi</span><span class="cal-weekday">Ju</span><span class="cal-weekday">Vi</span><span class="cal-weekday">Sá</span>'+cells.join('')+'</div>'+
+    summary+
+  '</div>';
+}
+LOAD.p_home = async () => {
+  await refreshMe();
+  await loadBookings();
+  await refreshQuickAvailability();
+};
 SCREENS.p_home = () => {
   const a = P(), s = S.search, to = s.from === 'tru' ? 'chi' : 'tru';
   const vs = vStatus('pasajero'); const nb = nextBooking(); const ns = nextSpecial();
-  const dates = [0,1,2].map(n => addDays(n));
+  const dates = [0,1,2].map(n => addDays(n)), hasSelectedDate = !!dateSchedules(s.date);
   return '<header class="top brand">'+logoH(32)+'<button class="ib" data-act="tab" data-arg="p_profile" aria-label="Perfil" style="border-radius:50%;overflow:hidden">'+avatarMe(40)+'</button></header>'+
   '<main class="scr">'+
     '<div class="home-hi"><h2 class="h-xl">Hola, '+esc(firstName(a.name))+'.<br><span>¿Cuándo viajas?</span></h2></div>'+
     (nb ? nextCard(nb) : '')+
     '<section class="card search" aria-label="Buscar viaje">'+
       '<div class="od"><div class="od-row"><span class="dot o"></span><div><small>Sales de</small><b>'+OFF[s.from].city+'</b><span>'+OFF[s.from].addr+'</span></div></div><div class="od-row"><span class="dot d"></span><div><small>Llegas a</small><b>'+OFF[to].city+'</b><span>'+OFF[to].addr+'</span></div></div><button class="swap" data-act="swap" aria-label="Invertir origen y destino">'+ic('swap',20)+'</button></div>'+
-      '<div><div class="lbl" style="margin-bottom:8px">Fecha</div><div class="chips">'+dates.map(d => chip(dayLabel(d), s.date===d, 'date', d)).join('')+'<label class="chip datepick" '+(dates.indexOf(s.date)<0?'aria-pressed="true" style="background:var(--ink);color:#fff;border-color:var(--ink)"':'')+'>'+ic('cal',16)+'<input type="date" id="date-in" min="'+addDays(0)+'" value="'+s.date+'" aria-label="Elegir otra fecha"></label></div></div>'+
+      '<div class="date-picker-field"><div class="lbl">Fecha</div><div class="chips">'+dates.map(d => {
+        const info = dateSchedules(d);
+        return '<button type="button" class="chip quick-date" data-act="date" data-arg="'+d+'" '+(info?'':'disabled')+' aria-pressed="'+(!!info&&s.date===d)+'">'+dayLabel(d)+'</button>';
+      }).join('')+'<button type="button" class="chip datepick" data-act="toggleCalendar" aria-expanded="'+!!F.calendarOpen+'" aria-controls="trip-calendar" aria-label="Abrir calendario">'+ic('cal',16)+(hasSelectedDate?dayLabel(s.date):'Elegir fecha')+'</button></div>'+(hasSelectedDate?'':'<small class="hint">No hay horarios disponibles para esta fecha. Elige una fecha marcada en el calendario.</small>')+(F.calendarOpen?calendarHtml(F.calendarMonth||monthOf(s.date)):'')+'</div>'+
       '<div><div class="lbl" style="margin-bottom:8px">Vehículo</div><div class="chips">'+['all','auto','camioneta','minivan'].map(k => chip(k==='all'?'Todos':VT[k].label, s.type===k, 'vtype', k)).join('')+'</div></div>'+
       '<div class="paxrow"><div><div class="lbl">Pasajeros</div><small class="muted">Puedes elegir varios asientos</small></div><div class="stepper"><button data-act="pax" data-arg="-1" aria-label="Menos pasajeros">−</button><b aria-live="polite">'+s.pax+'</b><button data-act="pax" data-arg="1" aria-label="Más pasajeros">+</button></div></div>'+
-      '<button class="btn" data-act="search">'+ic('route')+'Ver horarios disponibles</button>'+
+      '<button class="btn" data-act="search" '+(hasSelectedDate?'':'disabled')+'>'+ic('route')+'Ver horarios disponibles</button>'+
     '</section>'+
     (vs.st !== 'approved' ? '<button class="card tight" data-act="nav" data-arg="verif" style="text-align:left;border-color:#F2D57A;background:#FFFBEA"><div class="off"><span class="oi" style="background:var(--gold);color:var(--ink)">'+ic('shield',22)+'</span><div><b>'+(vs.st==='pending'?'Tu verificación está en revisión':vs.st==='rejected'?'Corrige tu verificación':'Gana la insignia «Pasajero confiable»')+'</b><small>'+(vs.st==='pending'?'El administrador revisa tu selfie y tu DNI.':'Sube tu selfie y tu DNI. Toma 2 minutos.')+'</small></div>'+ic('chev')+'</div></button>' : '')+
     '<div class="sec-h"><h3>Promociones</h3><small class="muted">Se aplican solas</small></div>'+
@@ -1467,13 +1515,44 @@ ACT.savePay = () => once(async () => { const c = C(); const y = F.yape != null ?
 ACT.submitReview = (role) => once(async () => { const r = await POST('/me/submit', { role }); ME = r.me; render(true); toast('Enviado. El administrador lo revisará y te avisamos por correo.'); });
 
 /* búsqueda */
-ACT.swap = () => { S.search.from = S.search.from === 'tru' ? 'chi' : 'tru'; save(); render(true); };
+ACT.swap = () => once(async () => {
+  S.search.from = S.search.from === 'tru' ? 'chi' : 'tru'; F.calendarOpen = false; save();
+  await refreshQuickAvailability();
+  render(true);
+});
 ACT.swap2 = () => { S.search.from = S.search.from === 'tru' ? 'chi' : 'tru'; save(); reload(); };
-ACT.date = (d) => { S.search.date = d; save(); render(true); };
-ACT.vtype = (k) => { S.search.type = k; save(); render(true); };
+ACT.date = (d) => {
+  if (!dateSchedules(d)) return toast('No hay horarios disponibles en esa fecha con los filtros elegidos.','gold');
+  S.search.date = d; F.calendarMonth = monthOf(d); F.calendarOpen = false; save(); render(true);
+};
+ACT.toggleCalendar = () => once(async () => {
+  const open = !F.calendarOpen;
+  if (open){
+    F.calendarMonth = monthOf(S.search.date);
+    await loadTripDates(F.calendarMonth,true);
+  }
+  F.calendarOpen = open;
+  render(true);
+});
+ACT.calendarMonth = (delta) => once(async () => {
+  const month = shiftMonth(F.calendarMonth||monthOf(S.search.date),Number(delta));
+  if (month < monthOf(addDays(0))) return;
+  await loadTripDates(month,true);
+  F.calendarMonth = month;
+  render(true);
+});
+ACT.vtype = (k) => once(async () => {
+  S.search.type = k; F.calendarOpen = false; save();
+  await refreshQuickAvailability();
+  render(true);
+});
 ACT.vtypeR = (k) => { S.search.type = k; save(); render(true); };
 ACT.pax = (n) => { S.search.pax = Math.max(1, Math.min(8, S.search.pax + Number(n))); save(); render(true); };
-ACT.search = () => go('p_results');
+ACT.search = () => {
+  if (!dateSchedules(S.search.date)) return toast('Elige una fecha con horarios disponibles.','gold');
+  F.calendarOpen = false;
+  go('p_results');
+};
 ACT.open = (id) => { F.vtab = 'ext'; go('p_trip', { id }); };
 ACT.vtab = (x) => { F.vtab = x; render(true); };
 
@@ -1785,7 +1864,12 @@ ACT.editSave = async () => {
    Eventos
    ========================================================= */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-act]'); if (!el || el.disabled) return;
+  const el = e.target.closest('[data-act]');
+  let calendarClosed = false;
+  if (F.calendarOpen && !e.target.closest('.date-picker-field')) {
+    F.calendarOpen = false; calendarClosed = true;
+  }
+  if (!el || el.disabled){ if (calendarClosed) render(true); return; }
   const fn = ACT[el.dataset.act]; if (!fn) return;
   e.preventDefault(); fn(el.dataset.arg, el, e);
 });
@@ -1809,7 +1893,6 @@ function readImg(file, max){
 function readPdf(file){ return new Promise((res, rej) => { if (file.size > 3.5*1024*1024) return rej(new Error('El PDF pesa más de 3,5 MB. Sube una foto o un PDF más liviano.')); const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); }); }
 document.addEventListener('change', async e => {
   const el = e.target;
-  if (el.id === 'date-in' && el.value){ S.search.date = el.value; save(); render(true); return; }
   if (el.dataset && el.dataset.f === 'liccat'){ F.liccat = el.value; return; }
   if (el.dataset && el.dataset.file){
     const f = el.files && el.files[0]; if (!f) return; const key = el.dataset.file; el.value = '';
@@ -1824,6 +1907,7 @@ document.addEventListener('change', async e => {
   }
 });
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && F.calendarOpen){ F.calendarOpen = false; render(true); return; }
   if (e.key === 'Escape') closeSheet();
   if (e.key === 'Enter' && (e.target.tagName === 'INPUT' || e.target === document.body)){ const s = cur().s; if (s === 'reg'){ e.preventDefault(); ACT.regNext(); } else if (s === 'login'){ e.preventDefault(); ACT.doLogin(); } else if (s === 'a_users'){ e.preventDefault(); ACT.usersSearch(); } }
 });

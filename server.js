@@ -646,6 +646,29 @@ async function ensureTripInNeon(t) {
   return imported;
 }
 
+api.get('/trips/dates', needUser, A(async (req, res) => {
+  const from = S(req.query.from), month = S(req.query.month), type = S(req.query.type || 'all');
+  if (!OFF[from] || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) ||
+      !['all', 'auto', 'camioneta', 'minivan'].includes(type)) fail(400, 'Búsqueda de fechas no válida.');
+  const r = await q(`select to_char(t.trip_date, 'YYYY-MM-DD') as date,
+      count(*)::int as schedules,
+      array_agg(to_char(t.dep_time::time, 'HH24:MI') order by t.dep_time::time) as times
+    from trips t
+    where t.from_off = $1 and t.trip_date >= $2::date
+      and t.trip_date < ($2::date + interval '1 month')
+      and t.status = 'active' and t.dep_at >= now()
+      and ($3 = 'all' or t.vtype = $3)
+      and t.seats > (
+        select count(distinct bs.seat)::int
+        from booking_seats bs join bookings b on b.id = bs.booking_id
+        where bs.trip_id = t.id and bs.active
+          and (b.status in ('por_confirmar', 'confirmado')
+            or (b.status = 'hold' and b.hold_until > now()))
+      )
+    group by t.trip_date order by t.trip_date`, [from, month + '-01', type]);
+  res.json({ dates: r.rows });
+}));
+
 api.get('/trips', needUser, A(async (req, res) => {
   const from = S(req.query.from), date = S(req.query.date);
   if (!OFF[from] || !isYmd(date)) fail(400, 'Búsqueda no válida.');
