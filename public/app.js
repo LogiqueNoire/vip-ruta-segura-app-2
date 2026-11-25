@@ -186,7 +186,7 @@ function driver(id){ return DB_.drivers[id] || (ME && ME.driver && id === ME.id 
 function driverFor(t){ const d = driver(t.driverId); return Object.assign({}, d, { model:t.model || d.model, plate:t.plate || d.plate, color:t.color || d.color, vtype:t.vtype }); }
 const ratingTxt = id => { const d = id === 'me' ? { rating: C() && C().rating } : driver(id); return d.rating == null ? 'Nuevo' : Number(d.rating).toFixed(1); };
 function seatInfo(t){ return DB_.seats[t.id] || { occupied:[], mine:[], holding:[], holdUntil:null }; }
-const takenCount = t => { const s = DB_.seats[t.id]; return s ? s.occupied.length : (t.taken || 0); };
+const takenCount = t => t.taken != null ? Math.max(0, Number(t.taken) || 0) : ((DB_.seats[t.id] || {}).occupied || []).length;
 const freeCount = t => Math.max(0, t.seats - takenCount(t));
 function setSeatState(t, st){ DB_.seats[t.id] = st; }
 

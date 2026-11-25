@@ -51,6 +51,16 @@ test('uses only active seats from the requested trip as occupied', () => {
   assert.deepEqual(state.mine, []);
 });
 
+test('counts seven active seats as occupied while leaving an inactive seat free', () => {
+  const rows = Array.from({ length:8 }, (_, index) => ({
+    trip_id:'1234', seat:String(index + 1), active:index < 7 ? 'TRUE' : 'FALSE'
+  }));
+  const state = estadoAsientosDesdeFilas(rows, 1234);
+
+  assert.equal(state.occupied.length, 7);
+  assert.equal(state.occupied.includes(8), false);
+});
+
 test('reads trip seats from Make in one request with trip, user, and seat fields', async t => {
   const originalFetch = global.fetch;
   t.after(() => { global.fetch = originalFetch; });

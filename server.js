@@ -477,7 +477,13 @@ const loadTripForRead = async id => (await loadTrip(id)) || await buscarViajePor
 api.get('/trips', needUser, A(async (req, res) => {
   const from = S(req.query.from), date = S(req.query.date);
   if (!OFF[from] || !isYmd(date)) fail(400, 'Búsqueda no válida.');
-  const rows = await listarViajes(date, from);
+  let rows = await listarViajes(date, from);
+  if (SHEETS_READS && rows.length) {
+    const seats = await leerTabla('asientos_reserva');
+    rows = rows.map(t => Object.assign({}, t, {
+      taken: estadoAsientosDesdeFilas(seats, t.id).occupied.length
+    }));
+  }
   res.json({ trips: rows.map(tripDto), drivers: await driversMap(rows.map(t => t.driver_id)) });
 }));
 
@@ -493,7 +499,9 @@ api.get('/trips/:id', needUser, A(async (req, res) => {
     }
   }
   const rv = (await listarResenasConductor(t.driver_id)).slice(0, 4);
-  res.json({ trip: tripDto(t), drivers, pay: { yape: dp.yape_phone || null, plin: dp.plin_phone || null }, seatState: await seatState(t.id, req.user.id),
+  const state = await seatState(t.id, req.user.id);
+  if (SHEETS_READS) t.taken = state.occupied.length;
+  res.json({ trip: tripDto(t), drivers, pay: { yape: dp.yape_phone || null, plin: dp.plin_phone || null }, seatState: state,
     reviews: rv.map(x => ({ s: x.stars, t: x.comment, tags: x.tags, a: shortName(x.name), at: x.created_at })) });
 }));
 api.get('/trips/:id/seats', needUser, A(async (req, res) => {
