@@ -37,7 +37,7 @@ En un entorno de desarrollo, primero completa la verificación de un conductor y
 npm run seed:demo -- --confirm
 ```
 
-El comando usa la `DATABASE_URL` del `.env`, crea hasta cuatro viajes disponibles y se puede repetir sin duplicar las salidas activas. No crea usuarios, reservas ni pagos ficticios; el pasajero puede buscar un viaje, elegir asientos y completar el flujo real de pago y confirmación. El sembrador se bloquea cuando `NODE_ENV=production`.
+El comando usa la `DATABASE_URL` del `.env`, crea hasta seis viajes disponibles e incluye salidas próximas en ambos sentidos (hoy si se ejecuta antes de las 16:30 de Lima; después, mañana). Se puede repetir sin duplicar las mismas salidas activas. No crea usuarios, reservas ni pagos ficticios; el pasajero puede buscar un viaje, elegir asientos y completar el flujo real de pago y confirmación. El sembrador se bloquea cuando `NODE_ENV=production`.
 
 Para comprobar el recorrido, inicia sesión como pasajero y reserva uno de los viajes; luego confirma el pago desde la cuenta del conductor. El conductor aprobado podrá iniciar la salida cuando sus pasajeros hayan abordado o haya vencido la espera de 20 minutos. En **En ruta** verá claramente la ciudad de salida y destino, y podrá confirmar la llegada para cerrar el viaje.
 

@@ -592,7 +592,10 @@ function vStatus(role){ if (role === 'pasajero'){ const s = ME.pax.status; retur
 const driverOk = () => !!(C() && C().status === 'approved');
 
 SCREENS.verif = (p) => {
-  const role = p.role || S.role; const lv = vLevel(role); const steps = vList(role); const done = lv.done === lv.total; const vs = vStatus(role);
+  const role = p.role || S.role;
+  if (role === 'conductor' && !C()) return top('Verificación', { sub:'Conductor' })+
+    '<main class="scr verification"><section class="card"><h2 class="h-sec">Activa tu perfil de conductor</h2><p class="muted">Necesitamos crear tu perfil antes de que puedas cargar la licencia, los datos del vehículo y los demás documentos.</p><button class="btn dark" data-act="ensureDriverProfile">Activar perfil</button></section></main>';
+  const lv = vLevel(role); const steps = vList(role); const done = lv.done === lv.total; const vs = vStatus(role);
   let body = steps.map(st => {
     const k = st.k, ok = st.done, open = F.vopen === k;
     return '<div class="vstep '+(ok?'done':'')+'"><button '+(st.auto?'disabled':'data-act="vopen" data-arg="'+k+'"')+' aria-expanded="'+open+'"><span class="vi">'+ic(ok?'check':st.ic,20)+'</span><span class="vt"><b>'+st.t+'</b><small>'+(ok ? (st.auto ? st.s : 'Guardado · toca para cambiarlo') : st.s)+'</small></span>'+(ok?'<span class="bdg ok">Listo</span>':ic('chev',18))+'</button>'+(open ? '<div class="vb">'+vBody(role,k)+'</div>' : '')+'</div>';
@@ -603,7 +606,7 @@ SCREENS.verif = (p) => {
   else footer = (vs.st === 'rejected' ? '<div class="note bad">'+ic('alert',18)+'<span><b>No pudimos aprobarte.</b> '+esc(vs.note||'')+' Corrige lo que se indica y vuelve a enviar.</span></div>' : '')+
     '<button class="btn dark" data-act="submitReview" data-arg="'+role+'" '+(done?'':'disabled')+'>Enviar a revisión</button>'+(done ? '' : '<p class="hint" style="text-align:center">Completa los pasos de arriba para poder enviar.</p>');
   return top('Verificación', { sub: role==='pasajero'?'Pasajero':'Conductor' })+
-  '<main class="scr">'+
+  '<main class="scr verification">'+
     '<div class="card tight"><div class="kv"><b style="text-align:left">'+(vs.st==='approved' ? (role==='pasajero'?'Pasajero confiable':'Conductor verificado') : 'Tu verificación')+'</b><b>'+lv.done+' de '+lv.total+'</b></div><div class="vbar"><i style="width:'+(lv.done/lv.total*100)+'%"></i></div><small class="muted">'+(role==='pasajero'?'Puedes reservar sin esto. La selfie, el DNI y tu contacto de emergencia te dan la insignia de confianza.':'Completa todos los pasos y envíalos: sin la aprobación del administrador no puedes publicar viajes. Tus documentos solo los ve el equipo de VIP.')+'</small></div>'+
     body + footer +
   '</main>';
@@ -964,7 +967,7 @@ SCREENS.d_home = () => {
       '<div class="kpis"><div><small>Pasajeros hoy</small><b>'+inf.today.pax+'</b></div><div><small>Ingreso hoy</small><b>'+soles(inf.today.income).replace('S/ ','S/')+'</b></div><div><small>Calificación</small><b>'+ratingTxt('me')+'</b></div></div></section>'+
     vBanner()+
     (inf.pendingPayments ? '<button class="card tight" data-act="tab" data-arg="d_manifest" style="text-align:left;border-color:var(--gold)"><div class="off"><span class="oi" style="background:var(--gold);color:var(--ink)">'+ic('money',22)+'</span><div><b>'+inf.pendingPayments+' pago'+(inf.pendingPayments>1?'s':'')+' por confirmar</b><small>Revisa que te llegó el Yape/Plin y confirma el asiento.</small></div>'+ic('chev')+'</div></button>' : '')+
-    (nt ? driverNextCard(nt) + salesPanel(nt) : '<section class="card"><h3>Aún no tienes viajes publicados</h3><p style="font-size:14px;color:var(--ink2)">Publica tu primera salida y aparecerá al instante en las búsquedas de los pasajeros.</p></section>')+
+    (nt ? driverNextCard(nt) + salesPanel(nt, true) : '<section class="card"><h3>Aún no tienes viajes publicados</h3><p style="font-size:14px;color:var(--ink2)">Publica tu primera salida y aparecerá al instante en las búsquedas de los pasajeros.</p></section>')+
     '<button class="btn" data-act="newTrip" '+(ok?'':'disabled')+'>'+ic('plus')+'Publicar un viaje</button>'+
     (list.length ? '<div class="sec-h"><h3>Tus salidas</h3></div>'+list.map(tripRow).join('') : '')+
     '<div class="sec-h"><h3>Reseñas recientes</h3>'+((C().reviews)?'<button class="link" data-act="nav" data-arg="d_reviews">Ver todas</button>':'')+'</div>'+
@@ -1001,7 +1004,7 @@ function departStatus(t){
   if (w.el < WAIT_MIN) return { cls:'gold', t:'Esperando pasajeros', d:'Faltan '+(sold-st.boarded)+' por subir. Si no llegan en '+mmss((WAIT_MIN-w.el)*60000)+', pierden su asiento.' };
   return { cls:'ok', go:true, t:'Ya puedes partir', d:'Pasaron los 20 minutos de espera. Quien no llegó perdió su asiento.' };
 }
-function salesPanel(t){
+function salesPanel(t, showConfirmSeats){
   const st = salesStats(t); const ds = departStatus(t); const m = st.m;
   const ev = m ? m.feed.slice(0,4) : [];
   const dots = Array.from({length:t.seats}, (_,i) => { const n = i+1; const s = m ? m.seats.find(x => x.seat === n && x.state !== 'released') : null; const c = !s ? 'free' : s.state === 'on' ? 'on' : s.state === 'pending' ? 'pend' : 'sold'; return '<i class="sd '+c+'" title="Asiento '+n+'">'+n+'</i>'; }).join('');
@@ -1011,6 +1014,7 @@ function salesPanel(t){
     '<div class="seatdots">'+dots+'</div>'+
     '<div class="depart '+ds.cls+'">'+ic(ds.go ? 'check' : 'clock',20)+'<div><b>'+ds.t+'</b><small>'+ds.d+'</small></div></div>'+
     (ds.go && t.status === 'active' ? '<button class="btn ok" data-act="driveOf" data-arg="'+esc(t.id)+'">'+ic('play',18)+'Iniciar viaje ahora</button>' : '')+
+    (showConfirmSeats && st.pend ? '<button class="btn sm line" data-act="manifestOf" data-arg="'+esc(t.id)+'">Ir a confirmar asientos</button>' : '')+
     (ev.length ? '<ul class="feed">'+ev.map(e => '<li class="'+e.k+'"><span class="fi">'+ic(e.k === 'compra' ? 'ticket' : 'flag',15)+'</span><span class="ft"><b>'+(e.k === 'compra' ? (e.confirmed ? 'Vendido asiento '+e.seat : 'Por confirmar asiento '+e.seat) : 'Asiento '+e.seat+' liberado')+'</b>'+esc(shortName(e.name))+(e.k === 'compra' ? ' · '+(e.pay === 'plin' ? 'Plin' : 'Yape') : ' · no llegó en 20 min')+'</span><small>'+agoTxt(e.at)+'</small></li>').join('')+'</ul>' : '<p class="muted" style="font-size:13.5px">Todavía no hay compras. Aparecerán aquí en cuanto un pasajero reserve.</p>')+
   '</section>';
 }
@@ -1155,7 +1159,7 @@ LOAD.a_review = async () => { const r = await GET('/admin/reviews'); DB_.adm.rev
 SCREENS.a_review = () => {
   const list = ADM().reviews || [];
   return top('Revisión', { back:false, sub:list.length+' por revisar' })+
-  '<main class="scr">'+
+  '<main class="scr review-list">'+
     (list.length ? list.map(r => '<section class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>'+esc(r.name)+'</b><span class="bdg '+(r.role==='conductor'?'gold':'info')+'">'+(r.role==='conductor'?'Conductor':'Pasajero')+'</span></div>'+
       '<div class="kv"><span>DNI</span><b class="mono">'+esc(r.dni||'—')+'</b></div><div class="kv"><span>Correo</span><b style="font-size:13px">'+esc(r.email)+'</b></div><div class="kv"><span>Celular</span><b>'+esc(fmtPhone(r.phone))+'</b></div>'+
       (r.emerg ? '<div class="kv"><span>Emergencia</span><b style="font-size:13px">'+esc(r.emerg)+'</b></div>' : '')+
@@ -1430,6 +1434,12 @@ ACT.continueAs = (r) => { S.role = r; save(); F = {}; tabTo(homeOf(r)); };
 async function becomeDriver(){
   await once(async () => { const r = await POST('/me/driver'); ME = r.me; S.role = 'conductor'; save(); stack = [{ s:'d_home' }, { s:'verif', p:{ role:'conductor' } }]; render(); toast('Perfil de conductor creado. Sube tus documentos para que los revisemos.','gold'); });
 }
+ACT.ensureDriverProfile = () => once(async () => {
+  const r = await POST('/me/driver');
+  ME = r.me;
+  render(true);
+  toast('Perfil de conductor activado. Ya puedes completar la verificación.','gold');
+});
 ACT.switchRole = (r) => {
   closeSheet();
   if (r === 'conductor' && !ME.driver) return confirmSheet('¿Quieres manejar con VIP?', 'Crearemos tu perfil de conductor. Tendrás que subir tus documentos y esperar la aprobación del administrador.', 'Sí, quiero manejar', becomeDriver);

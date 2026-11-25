@@ -224,6 +224,18 @@ async function meDto(uid, userRecord) {
   return dto;
 }
 
+async function meDtoAfterWrite(uid, fallbackRecord) {
+  const neonRecord = await buscarUsuarioNeonPorId(uid);
+  if (!neonRecord) return meDto(uid, fallbackRecord);
+  if (!SHEETS_READS) return meDto(uid, neonRecord);
+  const sheetUser = usuarioDesdeHoja(fallbackRecord) || {};
+  return meDto(uid, Object.assign({}, sheetUser, neonRecord, {
+    id: String(uid),
+    makeId: String(sheetUser.makeId || sheetUser.id || uid),
+    neonLinked: true
+  }));
+}
+
 const TRIP_COLS = `t.id, to_char(t.trip_date,'YYYY-MM-DD') as date, t.dep_time as time, t.from_off as "from", t.price, t.seats, t.vtype,
   t.status, t.dep_at, t.driver_id, t.veh_model, t.veh_plate, t.veh_color, t.make_id,
   (select count(*)::int from booking_seats bs join bookings b on b.id = bs.booking_id
@@ -401,11 +413,12 @@ api.post('/auth/register', A(async (req, res) => {
     name: d.name, phone: S(b.phone), pass_hash: hash,
     is_admin: false, blocked: false, blocked_reason: '',
     emerg_name: S(b.emergName), emerg_phone: S(b.emergPhone),
+    drv_status: role === 'conductor' ? 'draft' : '',
     pax_status: role === 'pasajero' ? 'activo' : '', pax_note: '',
     created_at: new Date().toISOString(), role, status: 'activo'
   };
   setSession(res, uid, b.remember !== false, e.email);
-  res.json({ me: await meDto(uid, userRecord) });
+  res.json({ me: await meDtoAfterWrite(uid, userRecord) });
 }));
 
 api.post('/auth/login', A(async (req, res) => {
@@ -450,12 +463,12 @@ api.put('/me/profile', needUser, A(async (req, res) => {
     add('emerg_name', n); add('emerg_phone', S(b.emerg.phone));
   }
   if (sets.length) await q('update users set ' + sets.join(', ') + ' where id = $1', vals);
-  res.json({ me: await meDto(req.user.id, req.user) });
+  res.json({ me: await meDtoAfterWrite(req.user.id, req.user) });
 }));
 
 api.post('/me/driver', needUser, A(async (req, res) => {
   await q('insert into driver_profiles (user_id) values ($1) on conflict do nothing', [req.user.id]);
-  res.json({ me: await meDto(req.user.id, req.user) });
+  res.json({ me: await meDtoAfterWrite(req.user.id, req.user) });
 }));
 
 const VEH_RE = /^[A-Z0-9]{3}-\d{3}$/;
@@ -475,7 +488,7 @@ api.put('/me/driver', needUser, needDriver, A(async (req, res) => {
   const sensitive = ['lic_num', 'lic_cat', 'vtype', 'model', 'plate', 'soat_until', 'rt_ok'].some(k => k in next && S(next[k]) !== S(cur[k] instanceof Date ? cur[k].toISOString().slice(0, 10) : cur[k]));
   if (sets.length) await q('update driver_profiles set ' + sets.join(', ') + ' where user_id = $1', vals);
   if (sensitive) await reopenReview(req.user.id, 'conductor');
-  res.json({ me: await meDto(req.user.id, req.user) });
+  res.json({ me: await meDtoAfterWrite(req.user.id, req.user) });
 }));
 
 // Si cambian datos o documentos ya revisados, el administrador los revisa otra vez.
@@ -507,7 +520,7 @@ api.post('/me/files', needUser, A(async (req, res) => {
   });
   if (def[0] === 'users') { await reopenReview(req.user.id, 'pasajero'); if (req.user.drv_status) await reopenReview(req.user.id, 'conductor'); }
   else await reopenReview(req.user.id, 'conductor');
-  res.json({ me: await meDto(req.user.id, req.user) });
+  res.json({ me: await meDtoAfterWrite(req.user.id, req.user) });
 }));
 
 api.post('/me/submit', needUser, A(async (req, res) => {
@@ -524,7 +537,7 @@ api.post('/me/submit', needUser, A(async (req, res) => {
   if (miss.length) fail(400, 'Te falta: ' + miss.join(', ') + '.', { missing: miss });
   if (role === 'pasajero') await q(`update users set pax_status = 'pending', pax_note = null where id = $1 and pax_status in ('none','rejected')`, [req.user.id]);
   else await q(`update driver_profiles set status = 'pending', review_note = null, submitted_at = now() where user_id = $1 and status in ('draft','rejected')`, [req.user.id]);
-  res.json({ me: await meDto(req.user.id, req.user) });
+  res.json({ me: await meDtoAfterWrite(req.user.id, req.user) });
 }));
 
 /* ---------- archivos ---------- */

@@ -31,6 +31,26 @@ function limaDate(daysAhead) {
   return date.toISOString().slice(0, 10);
 }
 
+function nextLimaDepartures() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Lima',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date());
+  const time = parts.reduce((value, part) => {
+    if (part.type === 'hour') value.hour = Number(part.value);
+    if (part.type === 'minute') value.minute = Number(part.value);
+    return value;
+  }, {});
+  const todayHasTime = time.hour * 60 + time.minute < 16 * 60 + 30;
+  return {
+    date: limaDate(todayHasTime ? 0 : 1),
+    outbound: todayHasTime ? '17:30' : '08:30',
+    inbound: todayHasTime ? '19:30' : '17:30'
+  };
+}
+
 async function seedDemoTrips() {
   await migrate();
   const driver = (await q(`select dp.user_id, dp.vtype, dp.model, dp.plate, dp.color
@@ -43,7 +63,10 @@ async function seedDemoTrips() {
   const capacity = { auto: 4, camioneta: 6, minivan: 8 }[driver.vtype];
   if (!capacity) throw new Error('El vehículo del conductor aprobado no tiene una capacidad válida.');
   const price = { auto: 60, camioneta: 50, minivan: 40 }[driver.vtype];
+  const next = nextLimaDepartures();
   const plan = [
+    { from: 'tru', date: next.date, time: next.outbound },
+    { from: 'chi', date: next.date, time: next.inbound },
     { from: 'tru', date: limaDate(2), time: '08:30' },
     { from: 'chi', date: limaDate(2), time: '17:30' },
     { from: 'tru', date: limaDate(3), time: '13:00' },
