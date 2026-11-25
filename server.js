@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
 const { verifyPassword } = require('./password-utils');
 const { q, tx, migrate, pool } = require('./db');
 const { sendMail, lookupDni, esc, MAIL_OK } = require('./services');
-const { buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, leerTabla, listarViajes, listarReservasUsuario, listarResenasConductor, listarPagosPanel, listarIncidentesPanel, estadoAsientosDesdeFilas } = require('./sheets-store');
+const { buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, leerTabla, leerAsientosViaje, listarViajes, listarReservasUsuario, listarResenasConductor, listarPagosPanel, listarIncidentesPanel, estadoAsientosDesdeFilas } = require('./sheets-store');
 
 const PROD = process.env.NODE_ENV === 'production';
 const SECRET = process.env.SESSION_SECRET || (PROD ? '' : 'dev-secret-cambia-esto-en-el-env-0123456789');
@@ -453,7 +453,7 @@ api.get('/files/:id', needUser, A(async (req, res) => {
 /* ---------- viajes: búsqueda y detalle ---------- */
 async function seatState(tripId, uid) {
   if (SHEETS_READS) {
-    const rows = await leerTabla('asientos_reserva', { trip_id: String(tripId) });
+    const rows = await leerAsientosViaje(tripId, uid);
     return estadoAsientosDesdeFilas(rows, tripId);
   }
   const r = await q(`select bs.seat, b.id as bid, b.user_id, b.hold_until, b.status from booking_seats bs join bookings b on b.id = bs.booking_id
@@ -480,6 +480,7 @@ api.get('/trips/:id', needUser, A(async (req, res) => {
     reviews: rv.map(x => ({ s: x.stars, t: x.comment, tags: x.tags, a: shortName(x.name), at: x.created_at })) });
 }));
 api.get('/trips/:id/seats', needUser, A(async (req, res) => {
+  if (SHEETS_READS) return res.json({ seatState: await seatState(req.params.id, req.user.id) });
   const t = await loadTripForRead(req.params.id); if (!t) fail(404, 'Este viaje ya no está disponible.');
   res.json({ trip: tripDto(t), seatState: await seatState(t.id, req.user.id) });
 }));

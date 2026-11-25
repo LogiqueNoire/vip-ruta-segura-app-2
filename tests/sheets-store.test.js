@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 process.env.SHEETS_READ_WEBHOOK_URL = 'https://make.example.test/read';
-const { normalizarFilas, estadoAsientosDesdeFilas, leerTabla, listarViajes, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId } = require('../sheets-store');
+const { normalizarFilas, estadoAsientosDesdeFilas, leerTabla, leerAsientosViaje, listarViajes, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId } = require('../sheets-store');
 
 const tripColumns = [
   'id','driver_id','from_off','trip_date','dep_time','dep_at','price','seats',
@@ -47,8 +47,25 @@ test('uses only active seats from the requested trip as occupied', () => {
     { trip_id:'5678', seat:'4', active:'TRUE', noshow:'FALSE' }
   ], 1234);
 
-  assert.deepEqual(state.occupied, [1]);
+  assert.deepEqual(state.occupied, [1, 3]);
   assert.deepEqual(state.mine, []);
+});
+
+test('reads trip seats from Make in one request with trip, user, and seat fields', async t => {
+  const originalFetch = global.fetch;
+  t.after(() => { global.fetch = originalFetch; });
+  let request;
+  global.fetch = async (_url, options) => {
+    request = JSON.parse(options.body);
+    return new Response(JSON.stringify({ asientos_reserva:[{ id:'1', booking_id:'1', trip_id:'1234', seat:'1', active:'TRUE' }] }), {
+      status:200, headers:{'content-type':'application/json'}
+    });
+  };
+
+  const seats = await leerAsientosViaje(1234, 8);
+
+  assert.deepEqual(request, { operacion:'buscar', tabla:'asientos_reserva', trip_id:'1234', user_id:'8', seats:[] });
+  assert.equal(seats.length, 1);
 });
 
 test('maps the users sheet format and its email column', () => {

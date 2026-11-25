@@ -741,7 +741,13 @@ SCREENS.p_trip = (p) => {
 };
 
 /* ---------- asientos (se guardan en el servidor 10 minutos) */
-LOAD.p_seats = async (p) => { const r = await GET('/trips/'+encodeURIComponent(p.id)+'/seats'); cacheTrips([r.trip]); setSeatState(r.trip, r.seatState); syncHold(r.trip); return r; };
+LOAD.p_seats = async (p) => {
+  let t = trip(p.id);
+  if (!t){ const full = await loadTripFull(p.id); t = full.trip; }
+  const r = await GET('/trips/'+encodeURIComponent(p.id)+'/seats');
+  if (r.trip){ cacheTrips([r.trip]); t = r.trip; }
+  setSeatState(t, r.seatState); syncHold(t); return Object.assign({}, r, { trip:t });
+};
 function syncHold(t){ const si = seatInfo(t); hold.tripId = t.id; hold.seats = si.holding.slice(); hold.until = si.holdUntil ? Date.parse(si.holdUntil) : 0; hold.bookingId = si.holdId || null; }
 function holdTotal(t, sel, others){
   const isFull = others === 0 && sel === t.seats; const pr = promoFor(t, isFull);

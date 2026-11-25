@@ -151,7 +151,7 @@ function filasRespuesta(remoto, nombre) {
 function estadoAsientosDesdeFilas(filas, tripId) {
   const tripText = texto(tripId);
   const occupied = [...new Set(filas
-    .filter(fila => texto(fila.trip_id) === tripText && booleano(fila.active) && !booleano(fila.noshow))
+    .filter(fila => texto(fila.trip_id) === tripText && booleano(fila.active))
     .map(fila => numero(fila.seat))
     .filter(seat => Number.isInteger(seat) && seat > 0))].sort((a, b) => a - b);
   return { occupied, mine: [], holding: [], holdUntil: null, holdId: null };
@@ -168,7 +168,7 @@ async function leerDesdeMake(payload) {
   if (!raw.trim()) return [];
   let data;
   try { data = JSON.parse(raw); } catch (_) { throw new Error('Make lectura devolvió una respuesta no JSON.'); }
-  const result = data?.usuario ?? data?.user ?? data?.usuarios ?? data?.viajes ?? data?.resenas ?? data?.results ?? data?.rows ?? data?.data ?? data;
+  const result = data?.[payload.tabla] ?? data?.usuario ?? data?.user ?? data?.usuarios ?? data?.viajes ?? data?.resenas ?? data?.results ?? data?.rows ?? data?.data ?? data;
   if (data?.ok === false || data?.error) throw new Error('Make rechazó la lectura solicitada.');
   return result;
 }
@@ -188,6 +188,14 @@ function coincide(fila, filtros) {
 async function leerTabla(nombre, filtros = {}) {
   const remoto = await leerDesdeMake({ tabla: nombre, ...filtros });
   return filasRespuesta(remoto, nombre).filter(fila => coincide(fila, filtros));
+}
+
+async function leerAsientosViaje(tripId, userId) {
+  const remoto = await leerDesdeMake({
+    tabla: 'asientos_reserva', trip_id: String(tripId), user_id: String(userId), seats: []
+  });
+  return filasRespuesta(remoto, 'asientos_reserva')
+    .filter(fila => texto(fila.trip_id) === texto(tripId));
 }
 
 async function buscarUsuarioPorId(id) {
@@ -334,7 +342,7 @@ async function listarIncidentesPanel() {
 }
 
 module.exports = {
-  leerHoja, leerTabla, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
+  leerHoja, leerTabla, leerAsientosViaje, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
   listarReservasUsuario, listarResenasConductor, listarPagos, listarIncidentes,
   listarPagosPanel, listarIncidentesPanel, normalizarFilas, estadoAsientosDesdeFilas
 };
