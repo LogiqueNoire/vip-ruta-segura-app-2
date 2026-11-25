@@ -198,6 +198,35 @@ async function leerAsientosViaje(tripId, userId) {
     .filter(fila => texto(fila.trip_id) === texto(tripId));
 }
 
+async function reservarAsientosMake(tripId, userId, seats) {
+  if (!READ_WEBHOOK_URL) throw new Error('Falta SHEETS_READ_WEBHOOK_URL para reservar asientos en Make.');
+  if (READ_WEBHOOK_URL === String(process.env.MAKE_WEBHOOK_URL || '').trim()) {
+    throw new Error('El webhook de lectura debe ser distinto al webhook de escritura.');
+  }
+  const response = await fetch(READ_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      operacion: 'reservar_asientos',
+      trip_id: String(tripId),
+      user_id: String(userId),
+      seats
+    })
+  });
+  const raw = await response.text();
+  let result;
+  try { result = JSON.parse(raw); } catch (_) {
+    throw new Error('Make reserva devolvió una respuesta no JSON.');
+  }
+  if (!response.ok && response.status !== 409) {
+    throw new Error(`Make reserva HTTP ${response.status}.`);
+  }
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new Error('Make reserva devolvió una respuesta inválida.');
+  }
+  return result;
+}
+
 async function buscarUsuarioPorId(id) {
   if (!['string', 'number'].includes(typeof id) || !texto(id)) return null;
   const idText = texto(id);
@@ -342,7 +371,7 @@ async function listarIncidentesPanel() {
 }
 
 module.exports = {
-  leerHoja, leerTabla, leerAsientosViaje, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
+  leerHoja, leerTabla, leerAsientosViaje, reservarAsientosMake, buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, listarViajes,
   listarReservasUsuario, listarResenasConductor, listarPagos, listarIncidentes,
   listarPagosPanel, listarIncidentesPanel, normalizarFilas, estadoAsientosDesdeFilas
 };

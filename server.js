@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
 const { verifyPassword } = require('./password-utils');
 const { q, tx, migrate, pool } = require('./db');
 const { sendMail, lookupDni, esc, MAIL_OK } = require('./services');
-const { buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, leerTabla, leerAsientosViaje, listarViajes, listarReservasUsuario, listarResenasConductor, listarPagosPanel, listarIncidentesPanel, estadoAsientosDesdeFilas } = require('./sheets-store');
+const { buscarUsuarioPorId, buscarUsuarioPorCorreo, buscarViajePorId, leerTabla, leerAsientosViaje, reservarAsientosMake, listarViajes, listarReservasUsuario, listarResenasConductor, listarPagosPanel, listarIncidentesPanel, estadoAsientosDesdeFilas } = require('./sheets-store');
 
 const PROD = process.env.NODE_ENV === 'production';
 const SECRET = process.env.SESSION_SECRET || (PROD ? '' : 'dev-secret-cambia-esto-en-el-env-0123456789');
@@ -461,6 +461,20 @@ async function seatState(tripId, uid) {
   const mine = r.rows.filter(x => x.user_id === uid);
   return { occupied: r.rows.map(x => x.seat), mine: mine.map(x => x.seat), holding: mine.filter(x => x.status === 'hold').map(x => x.seat), holdUntil: (mine.find(x => x.status === 'hold') || {}).hold_until || null, holdId: (mine.find(x => x.status === 'hold') || {}).bid ? String(mine.find(x => x.status === 'hold').bid) : null };
 }
+function seatStateFromMake(result) {
+  const state = result && result.seatState;
+  if (!state || !['occupied','mine','holding'].every(key => Array.isArray(state[key]))) {
+    fail(502, 'Make no devolvió el estado de asientos esperado.');
+  }
+  const normalize = values => values.map(Number).filter(n => Number.isInteger(n) && n > 0);
+  return {
+    occupied: normalize(state.occupied),
+    mine: normalize(state.mine),
+    holding: normalize(state.holding),
+    holdUntil: state.holdUntil || null,
+    holdId: state.holdId == null ? null : S(state.holdId)
+  };
+}
 const loadTrip = async (id, c) => (await (c || pool).query(`select ${TRIP_COLS} from trips t where t.id = $1`, [+id || 0])).rows[0] || null;
 const loadTripForRead = async id => (await loadTrip(id)) || await buscarViajePorId(id);
 
@@ -506,6 +520,19 @@ const bookingSeats = async (c, id) => (await c.query('select seat from booking_s
 
 api.post('/trips/:id/hold', needUser, A(async (req, res) => {
   limit('hold|' + req.user.id, 120, 600e3);
+  const want = [...new Set((Array.isArray(req.body.seats) ? req.body.seats : []).map(Number))];
+  if (want.length > 8 || want.some(n => !Number.isInteger(n) || n < 1)) fail(400, 'Asiento no válido.');
+  if (SHEETS_READS) {
+    const result = await reservarAsientosMake(req.params.id, req.user.id, want);
+    if (result.ok === false) {
+      const taken = Array.isArray(result.taken) ? result.taken : [];
+      if (taken.length) fail(409, S(result.message) || 'Este asiento ya fue reservado. Elige otro.', { taken });
+      fail(409, S(result.message) || 'Make no pudo reservar esos asientos.');
+    }
+    if (result.ok !== true) fail(502, 'Make no confirmó la reserva de asientos.');
+    res.json({ booking: result.booking || null, seatState: seatStateFromMake(result) });
+    return;
+  }
   const out = await tx(async c => {
     const t0 = (await c.query('select id from trips where id = $1 for update', [+req.params.id || 0])).rows[0];
     if (!t0) fail(404, 'Este viaje ya no está disponible.');
@@ -513,9 +540,7 @@ api.post('/trips/:id/hold', needUser, A(async (req, res) => {
     if (t.status !== 'active' || new Date(t.dep_at) < new Date()) fail(409, 'Este viaje ya salió o no admite reservas.');
     if (t.driver_id === req.user.id) fail(403, 'No puedes reservar en tu propio viaje.');
     await expireStale(c, t.id);
-    const want = [...new Set((Array.isArray(req.body.seats) ? req.body.seats : []).map(Number))];
-    if (want.some(n => !Number.isInteger(n) || n < 1 || n > t.seats)) fail(400, 'Asiento no válido.');
-    if (want.length > 8) fail(400, 'Demasiados asientos.');
+    if (want.some(n => n > t.seats)) fail(400, 'Asiento no válido.');
     let b = (await c.query(`select * from bookings where trip_id = $1 and user_id = $2 and status = 'hold' limit 1`, [t.id, req.user.id])).rows[0];
     const have = b ? await bookingSeats(c, b.id) : [];
     const add = want.filter(n => !have.includes(n)), del = have.filter(n => !want.includes(n));
