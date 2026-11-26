@@ -67,7 +67,8 @@ h1,h2,h3,h4,p{margin:0}
   #app>.scr>*{width:100%;max-width:1280px;min-width:0}
   .scr{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-content:start}
   .scr>*{grid-column:1/-1}
-  .scr.verification>.vstep{grid-column:auto}
+  .scr.verification{grid-auto-rows:max-content}
+  .scr.verification>.vstep{grid-column:auto;align-self:start}
   .scr.verification>.card,.scr.verification>.note,.scr.verification>.btn,.scr.verification>.hint{grid-column:1/-1}
   .scr.review-list{grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr))}
   .scr.review-list>*{grid-column:auto}
@@ -508,7 +509,7 @@ small{font-size:12.5px}
 .emerg small{color:var(--ink2);font-weight:700}
 @keyframes fade{from{opacity:0}}
 @keyframes up{from{transform:translateY(40px);opacity:.4}}
-.toast{position:fixed;left:50%;top:50%;right:auto;bottom:auto!important;transform:translate(-50%,-50%);width:min(420px,calc(100% - 28px));box-sizing:border-box;justify-content:center;text-align:center;z-index:60;background:var(--ink);color:#fff;padding:13px 14px;border-radius:16px;font-weight:600;font-size:14px;display:flex;gap:10px;align-items:center;box-shadow:0 14px 30px -10px rgba(22,24,29,.5);animation:none}
+.toast{position:fixed;left:50%;top:50%;right:auto;bottom:auto!important;transform:translate(-50%,-50%);width:min(420px,calc(100% - 28px));box-sizing:border-box;justify-content:center;text-align:center;z-index:60;pointer-events:none;background:var(--ink);color:#fff;padding:13px 14px;border-radius:16px;font-weight:600;font-size:14px;display:flex;gap:10px;align-items:center;box-shadow:0 14px 30px -10px rgba(22,24,29,.5);animation:none}
 .toast.ok svg{color:#5FD3A0}
 .toast.bad svg{color:#FF8C82}
 .toast.gold svg{color:var(--gold)}
@@ -548,6 +549,7 @@ small{font-size:12.5px}
 .segbar i{flex:1;height:6px;border-radius:6px;background:#E1E4E9}
 .segbar i.on{background:var(--gold)}
 .reg{gap:14px;padding-top:8px}
+.reg-next{min-height:62px;font-size:17px;border-radius:17px;box-shadow:0 6px 14px rgba(142,98,0,.16)}
 .fld.big input{min-height:62px;font-size:21px;font-weight:600;border-radius:16px}
 @keyframes fadein{from{opacity:0;transform:translateY(8px)}}
 

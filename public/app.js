@@ -162,9 +162,10 @@ const C = () => (ME && ME.driver) || null;
 const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v||'').trim());
 
 async function api(method, path, body){
-  let r;
-  try{ r = await fetch('/api'+path, { method, credentials:'same-origin', headers: body !== undefined ? { 'Content-Type':'application/json' } : undefined, body: body !== undefined ? JSON.stringify(body) : undefined }); }
-  catch(e){ const er = new Error('Sin conexión. Revisa tu internet e inténtalo otra vez.'); er.offline = true; throw er; }
+  let r; const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 45000);
+  try{ r = await fetch('/api'+path, { method, credentials:'same-origin', signal:ac.signal, headers: body !== undefined ? { 'Content-Type':'application/json' } : undefined, body: body !== undefined ? JSON.stringify(body) : undefined }); }
+  catch(e){ const er = new Error('Sin conexión o muy lenta. Revisa tu internet e inténtalo otra vez.'); er.offline = true; throw er; }
+  finally{ clearTimeout(to); }
   let j = null; try{ j = await r.json(); }catch(e){}
   if (!r.ok){ const er = new Error((j && j.error) || 'Algo salió mal. Inténtalo otra vez.'); er.status = r.status; er.data = j; throw er; }
   return j;
@@ -554,8 +555,9 @@ SCREENS.reg = (p) => {
     btn = 'Crear mi cuenta';
   }
   return top(r === 'pasajero' ? 'Cuenta de pasajero' : 'Cuenta de conductor', { sub:'Paso '+st+' de 4' })+
-    '<main class="scr reg">'+bar+body+'</main>'+
-    '<div class="bar"><button class="btn" id="btn-next" data-act="regNext" '+(regStepValid()?'':'disabled')+'>'+btn+' '+ic('chev',20)+'</button></div>';
+    '<main class="scr reg">'+bar+body+
+      '<button class="btn reg-next" id="btn-next" data-act="regNext" '+(regStepValid()?'':'disabled')+'>'+btn+' '+ic('chev',20)+'</button>'+
+    '</main>';
 };
 AFTER.reg = () => { const i = app.querySelector('.reg input:not([readonly])'); if (i && !('ontouchstart' in window)) i.focus(); };
 SCREENS.ready = () => {
